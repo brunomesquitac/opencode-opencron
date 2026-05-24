@@ -1,0 +1,49 @@
+import { defineConfig } from 'tsup';
+
+const shared = {
+  outDir: 'dist',
+  format: ['esm'],
+  target: 'esnext',
+  splitting: false,
+  sourcemap: true,
+  clean: true,
+  external: [
+    'bun:sqlite',
+    'bun:test',
+  ],
+  noExternal: [
+    '@opencode-ai/plugin',
+    'commander',
+    'cron-parser',
+    'drizzle-orm',
+    'glob',
+    'hono',
+  ],
+  alias: {
+    '@core': './src/core',
+    '@worker': './src/worker',
+    '@web': './src/web',
+    '@plugin': './plugin',
+    '@gateway': './src/gateway',
+    '@daemon': './src/daemon',
+  },
+};
+
+export default defineConfig([
+  {
+    ...shared,
+    entry: { 'cli/index': 'src/cli/index.ts' },
+    banner: { js: '#!/usr/bin/env bun\n' },
+    dts: { resolve: true },
+  },
+  {
+    ...shared,
+    entry: {
+      'gateway/index': 'src/gateway/index.ts',
+      'web/index': 'src/web/index.tsx',
+      'plugin/opencron': 'plugin/opencron.ts',
+      'worker/index': 'src/worker/index.ts',
+    },
+    dts: { resolve: true },
+  },
+]);

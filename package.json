@@ -1,0 +1,82 @@
+{
+    "name": "opencode-opencron",
+    "version": "0.1.0",
+    "description": "Headless task scheduler for OpenCode agents — schedule, retry, and manage batch jobs with SQLite",
+    "type": "module",
+    "main": "dist/plugin/opencron.js",
+    "types": "dist/plugin/opencron.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/plugin/opencron.js",
+            "types": "./dist/plugin/opencron.d.ts"
+        },
+        "./server": {
+            "import": "./dist/plugin/opencron.js",
+            "types": "./dist/plugin/opencron.d.ts"
+        }
+    },
+    "files": [
+        "dist",
+        "drizzle",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "dev": "bun run src/cli/index.ts",
+        "build": "tsup",
+        "db:generate": "drizzle-kit generate",
+        "db:migrate": "bun run src/core/db/migrate.ts",
+        "ui": "bun run src/web/index.tsx",
+        "gateway": "bun run src/gateway/index.ts",
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "bin": {
+        "opencron": "dist/cli/index.js"
+    },
+    "keywords": [
+        "opencode",
+        "plugin",
+        "task",
+        "queue",
+        "agent",
+        "scheduler",
+        "opencron"
+    ],
+    "author": "javazys (forked by https://github.com/bmesquitadev)",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/bmesquitadev/opencode-opencron.git"
+    },
+    "bugs": {
+        "url": "https://github.com/bmesquitadev/opencode-opencron/issues"
+    },
+    "homepage": "https://github.com/bmesquitadev/opencode-opencron#readme",
+    "dependencies": {
+        "commander": "^13.1.0",
+        "cron-parser": "^5.5.0",
+        "drizzle-orm": "^0.39.1",
+        "glob": "^13.0.0",
+        "hono": "^4.7.4"
+    },
+    "devDependencies": {
+        "@opencode-ai/plugin": "^1.1.42",
+        "@types/bun": "latest",
+        "@types/node": "^25.1.0",
+        "drizzle-kit": "^0.30.4",
+        "tsup": "^8.5.1",
+        "typescript": "^5.9.3"
+    },
+    "peerDependencies": {
+        "@opencode-ai/plugin": "^1.1.0"
+    },
+    "peerDependenciesMeta": {
+        "@opencode-ai/plugin": {
+            "optional": false
+        }
+    },
+    "engines": {
+        "bun": ">=1.0.0"
+    }
+}

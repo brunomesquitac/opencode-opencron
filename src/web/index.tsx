@@ -139,6 +139,40 @@ const SHARED_STYLES = html`
   .toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:6px; color:#fff; font-size:14px; z-index:9999; display:none; }
   .toast-ok { background:var(--green); }
   .toast-err { background:var(--red); }
+  .tip { display:inline-flex; align-items:center; justify-content:center; width:11px; height:11px; border-radius:50%; background:var(--t2); color:var(--bg); font-size:7px; font-weight:700; font-style:italic; cursor:default; margin-left:4px; vertical-align:middle; user-select:none; flex-shrink:0; line-height:1; }
+  .tip:hover { background:var(--blue); }
+  #tooltip { position:fixed; z-index:9998; background:#21262d; border:1px solid var(--border); border-radius:6px; padding:8px 12px; font-size:12px; color:var(--t1); line-height:1.5; max-width:240px; pointer-events:none; display:none; box-shadow:0 4px 12px rgba(0,0,0,0.4); }
+  .msg { margin-bottom:12px; }
+  .msg .msg-hd { font-size:11px; font-weight:600; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.5px; }
+  .msg .msg-bd { background:#0d1117; padding:10px 14px; border-radius:0 6px 6px 0; font-size:13px; line-height:1.6; }
+  .msg .msg-bd pre { margin:0; white-space:pre-wrap; font-size:12px; }
+  .msg-user .msg-hd { color:var(--blue); }
+  .msg-user .msg-bd { border-left:2px solid var(--blue); }
+  .msg-assistant .msg-hd { color:var(--green); }
+  .msg-assistant .msg-bd { border-left:2px solid var(--green); white-space:pre-wrap; }
+  .msg-toolcall .msg-hd { color:var(--purple); }
+  .msg-toolcall .msg-bd { border-left:2px solid var(--purple); font-family:monospace; font-size:12px; padding:8px 12px; }
+  .msg-toolresult .msg-hd { color:var(--yellow); }
+  .msg-toolresult .msg-bd { border-left:2px solid var(--yellow); font-family:monospace; font-size:12px; padding:8px 12px; max-height:240px; overflow-y:auto; white-space:pre-wrap; }
+  .msg-error .msg-hd { color:var(--red); }
+  .msg-error .msg-bd { background:rgba(248,81,73,0.06); border-left:2px solid var(--red); }
+  .stars { display:inline-flex; gap:2px; align-items:center; }
+  .stars .star { cursor:pointer; font-size:16px; color:var(--border); transition:color 0.1s; }
+  .stars .star.on { color:var(--yellow); }
+  .stars .star:hover { color:var(--yellow); }
+  .section-label { color:var(--t2); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin:16px 0 8px; }
+  .section-label:first-child { margin-top:0; }
+  .field { margin-bottom:14px; }
+  .field label { display:flex; align-items:center; color:var(--t2); font-size:13px; margin-bottom:4px; }
+  .field label .field-name { min-width:0; }
+  .field input, .field textarea, .field select { width:100%; background:#0d1117; border:1px solid var(--border); color:var(--t1); padding:8px 12px; border-radius:4px; font-size:13px; font-family:inherit; }
+  .field textarea { min-height:120px; resize:vertical; font-family:monospace; font-size:13px; line-height:1.5; }
+  .field input:focus, .field textarea:focus, .field select:focus { outline:none; border-color:var(--blue); }
+  .field-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .field-inline { display:flex; gap:12px; align-items:center; }
+  .field-inline label { margin-bottom:0; min-width:90px; }
+  .field-inline input, .field-inline select { width:auto; flex:1; }
+  .hl { color:var(--yellow); font-size:12px; margin-left:4px; }
 </style>
 `;
 
@@ -167,6 +201,22 @@ async function clearDatabase(){
   }catch(e){alert('Clear failed: '+e.message);}
 }
 
+function showTip(el,text){
+  var t=document.getElementById('tooltip');
+  t.textContent=text;
+  t.style.display='block';
+  var r=el.getBoundingClientRect();
+  var tw=t.offsetWidth,th=t.offsetHeight;
+  var left=r.left+r.width/2-tw/2;
+  var top=r.top-th-8;
+  if(top<6){top=r.bottom+8;}
+  if(left<6){left=6;}
+  if(left+tw>window.innerWidth-6){left=window.innerWidth-tw-6;}
+  t.style.left=left+'px';
+  t.style.top=top+'px';
+}
+function hideTip(){document.getElementById('tooltip').style.display='none';}
+
 async function saveConfig(){
   const form=document.getElementById('config-form');
     const data={
@@ -194,14 +244,100 @@ async function saveConfig(){
     else{alert('Save failed: '+d.error);}
   }catch(e){alert('Save failed: '+e.message);}
 }
+
+function initStars(containerId){
+  var c=document.getElementById(containerId);
+  if(!c)return;
+  var hidden=c.querySelector('input[type=hidden]');
+  var label=document.getElementById(containerId+'-label');
+  var names=['Low','Low','Medium','High','Critical'];
+  var value=parseInt(hidden.value)||3;
+  var stars=c.querySelectorAll('.star');
+  function paint(v){
+    stars.forEach(function(s,i){s.className='star'+(i<v?' on':'');});
+    hidden.value=v;
+    if(label)label.textContent=names[v]||'';
+  }
+  stars.forEach(function(s,i){
+    s.addEventListener('click',function(){paint(i+1);});
+  });
+  paint(value);
+}
+
+async function createTask(){
+  var f=document.getElementById('task-form');
+  var data={
+    name:f.nm.value.trim(),
+    agent:f.ag.value.trim(),
+    model:f.mo.value.trim()||'default',
+    prompt:f.pr.value.trim(),
+    cwd:f.cw.value.trim()||null,
+    category:f.ca.value,
+    importance:parseInt(f.im.value)||3,
+    urgency:parseInt(f.ur.value)||3,
+    maxRetries:parseInt(f.mr.value)||3,
+  };
+  if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+
+  var mode=f.sch_mode.value;
+  if(mode==='schedule'){
+    data.scheduleType=f.sch_type.value;
+    var mults={minutes:60000,hours:3600000,days:86400000};
+    if(data.scheduleType==='cron'){
+      data.cronExpr=f.cron_expr.value.trim();
+      if(!data.cronExpr){alert('Cron expression is required.');return;}
+    }else if(data.scheduleType==='recurring'){
+      var v=parseInt(f.int_val.value)||0;
+      var u=f.int_unit.value;
+      if(v<=0){alert('Interval value must be greater than 0.');return;}
+      data.intervalMs=v*(mults[u]||60000);
+    }else if(data.scheduleType==='delayed'){
+      var v=parseInt(f.del_val.value)||0;
+      var u=f.del_unit.value;
+      if(v<=0){alert('Delay value must be greater than 0.');return;}
+      data.runAt=Date.now()+v*(mults[u]||60000);
+    }
+    try{
+      var r=await fetch('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      var d=await r.json();
+      if(d.success){location.href='/templates?created='+d.templateId;}
+      else{alert('Failed to create schedule: '+d.error);}
+    }catch(e){alert('Failed to create schedule: '+e.message);}
+  }else{
+    try{
+      var r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      var d=await r.json();
+      if(d.success){location.href='/?created='+d.taskId;}
+      else{alert('Failed to create task: '+d.error);}
+    }catch(e){alert('Failed to create task: '+e.message);}
+  }
+}
+
+function toggleScheduling(){
+  var f=document.getElementById('task-form');
+  var schedule=f.sch_mode.value==='schedule';
+  document.getElementById('schedule-section').style.display=schedule?'block':'none';
+  document.getElementById('submit-btn').textContent=schedule?'Create Schedule':'Create Task';
+  if(schedule)updateScheduleFields();
+}
+
+function updateScheduleFields(){
+  var type=document.getElementById('task-form').sch_type.value;
+  document.getElementById('sch-cron').style.display=type==='cron'?'block':'none';
+  document.getElementById('sch-recurring').style.display=type==='recurring'?'block':'none';
+  document.getElementById('sch-delayed').style.display=type==='delayed'?'block':'none';
+}
+
+function viewSession(runId){location.href='/runs/'+runId+'/session';}
 </script>
 </head>
 <body>
 <div id="toast" class="toast toast-ok"></div>
+<div id="tooltip"></div>
 <div class="c">
   <header>
     <div><h1>OpenCron Dashboard</h1><span class="mu sm">Task scheduler management</span></div>
-    <div><a href="${activeTab === 'tasks' ? '/' : '/' + activeTab}" class="rf">Refresh</a></div>
+    <div><a href="/new" class="rf">+ New Task</a> <a href="${activeTab === 'tasks' ? '/' : '/' + activeTab}" class="rf">Refresh</a></div>
   </header>
   <nav class="tabs">
     <a href="/" class="${activeTab === 'tasks' ? 'active' : ''}">Task Queue</a>
@@ -250,6 +386,8 @@ app.get('/', async (c) => {
     let rows = '';
     for (const task of tasks) {
         const st = (task.status ?? '').toUpperCase();
+        const lr = latestRuns.get(task.id);
+        const sessionBtn = lr ? `<button class="btn btn-sm" onclick="viewSession(${lr.id})">Session</button>` : '';
         rows += `<tr>
           <td class="mu">#${task.id}</td>
           <td><div style="font-weight:500">${esc(task.name)}</div><div class="mu sm el">${esc(task.prompt.substring(0, 120))}</div></td>
@@ -259,6 +397,7 @@ app.get('/', async (c) => {
           <td class="mu sm">${(task.retryCount ?? 0) > 0 ? task.retryCount : '-'}</td>
           <td>
             <button class="btn btn-sm" onclick="showDetail(${task.id})">Details</button>
+            ${sessionBtn}
             ${(task.status === 'failed' || task.status === 'dead_letter') ? `<button class="btn btn-sm btn-warn" onclick="retryTask(${task.id})">Retry</button>` : ''}
             <button class="btn btn-sm btn-danger" onclick="deleteTask(${task.id})">Delete</button>
           </td></tr>`;
@@ -283,7 +422,19 @@ app.get('/', async (c) => {
         <thead><tr><th width="50">ID</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th width="60">Retries</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
-      ${paging}`;
+      ${paging}
+      <script>
+        (function(){
+          var p=new URLSearchParams(location.search);
+          if(p.get('created')){
+            document.getElementById('toast').textContent='Task #'+p.get('created')+' created successfully';
+            document.getElementById('toast').className='toast toast-ok';
+            document.getElementById('toast').style.display='block';
+            setTimeout(function(){document.getElementById('toast').style.display='none';},3000);
+            history.replaceState({},'',location.pathname);
+          }
+        })();
+      </script>`;
 
     return c.html(renderLayout('Task Queue', 'tasks', body));
 });
@@ -352,7 +503,19 @@ app.get('/templates', async (c) => {
           <thead><tr><th width="50">ID</th><th>Name</th><th>Type</th><th>Rule</th><th width="90">Status</th><th>Last Run</th><th>Next Run</th><th>Actions</th></tr></thead>
           <tbody>${rows}${emptyRow}</tbody>
         </table>
-      </div>`;
+      </div>
+      <script>
+        (function(){
+          var p=new URLSearchParams(location.search);
+          if(p.get('created')){
+            document.getElementById('toast').textContent='Template #'+p.get('created')+' created successfully';
+            document.getElementById('toast').className='toast toast-ok';
+            document.getElementById('toast').style.display='block';
+            setTimeout(function(){document.getElementById('toast').style.display='none';},3000);
+            history.replaceState({},'',location.pathname);
+          }
+        })();
+      </script>`;
 
     return c.html(renderLayout('Scheduled Tasks', 'templates', body));
 });
@@ -384,6 +547,7 @@ app.get('/runs', async (c) => {
         const logBtn = run.log
             ? `<button class="btn btn-sm" onclick="toggleLog(${run.id})">Log</button>`
             : '';
+        const sessBtn = `<button class="btn btn-sm" onclick="viewSession(${run.id})">Session</button>`;
         rows += `<tr>
           <td class="mu">#${run.id}</td>
           <td><div style="font-weight:500">${esc(run.taskName)} <span class="mu">(#${run.taskId})</span></div>
@@ -392,7 +556,7 @@ app.get('/runs', async (c) => {
           <td><span class="badge b-${run.status}">${(run.status ?? '').toUpperCase()}</span></td>
           <td class="sm">${formatDuration(run.startedAt, run.finishedAt)}</td>
           <td class="sm mu">${run.heartbeatAt ? timeAgo(run.heartbeatAt) : '-'}</td>
-          <td><button class="btn btn-sm" onclick="showRunDetail(${run.id})">Details</button>${logBtn}</td>
+          <td><button class="btn btn-sm" onclick="showRunDetail(${run.id})">Details</button>${logBtn}${sessBtn}</td>
         </tr>`;
 
         if (run.log) {
@@ -466,28 +630,28 @@ app.get('/system', async (c) => {
       <div class="g3">
         <div class="card">
           <h3 style="margin:0 0 12px;font-size:14px">Worker Config</h3>
-          <div class="form-row"><label>Max Concurrency</label><input type="number" name="mc" value="${config.worker.maxConcurrency}" min="1" max="20" style="width:80px"></div>
-          <div class="form-row"><label>Poll Interval (ms)</label><input type="number" name="pi" value="${config.worker.pollIntervalMs}" min="100" style="width:100px"></div>
-          <div class="form-row"><label>Heartbeat (sec)</label><input type="number" name="hi" value="${config.worker.heartbeatIntervalMs / 1000}" min="5" style="width:100px"></div>
-          <div class="form-row"><label>Task Timeout (min)</label><input type="number" name="to" value="${config.worker.taskTimeoutMs / 60000}" min="1" style="width:100px"></div>
+          <div class="form-row"><label>Max Concurrency<span class="tip" onmouseenter="showTip(this,'Maximum number of tasks that can run simultaneously. Increasing this uses more CPU and memory.')" onmouseleave="hideTip()">i</span></label><input type="number" name="mc" value="${config.worker.maxConcurrency}" min="1" max="20" style="width:80px"></div>
+          <div class="form-row"><label>Poll Interval (ms)<span class="tip" onmouseenter="showTip(this,'How often the worker checks the queue for new tasks to execute. Lower values reduce latency but increase CPU usage.')" onmouseleave="hideTip()">i</span></label><input type="number" name="pi" value="${config.worker.pollIntervalMs}" min="100" style="width:100px"></div>
+          <div class="form-row"><label>Heartbeat (sec)<span class="tip" onmouseenter="showTip(this,'How often a running task signals that it is still alive. If it stops, the Watchdog will mark the task as dead after Heartbeat Timeout.')" onmouseleave="hideTip()">i</span></label><input type="number" name="hi" value="${config.worker.heartbeatIntervalMs / 1000}" min="5" style="width:100px"></div>
+          <div class="form-row"><label>Task Timeout (min)<span class="tip" onmouseenter="showTip(this,'Maximum time a task can run before being forcefully killed and marked as dead.')" onmouseleave="hideTip()">i</span></label><input type="number" name="to" value="${config.worker.taskTimeoutMs / 60000}" min="1" style="width:100px"></div>
         </div>
         <div class="card">
           <h3 style="margin:0 0 12px;font-size:14px">Scheduler Config</h3>
-          <div class="form-row"><label>Enabled</label><input type="checkbox" name="se" ${config.scheduler.enabled ? 'checked' : ''}></div>
-          <div class="form-row"><label>Check Interval</label><input type="number" name="si" value="${config.scheduler.checkIntervalMs}" min="100" style="width:100px"></div>
-          <div class="form-row"><label>Catch Up</label><select name="cu" style="width:100px">
+          <div class="form-row"><label>Enabled<span class="tip" onmouseenter="showTip(this,'When disabled, the scheduler will not create new tasks automatically from cron templates.')" onmouseleave="hideTip()">i</span></label><input type="checkbox" name="se" ${config.scheduler.enabled ? 'checked' : ''}></div>
+          <div class="form-row"><label>Check Interval<span class="tip" onmouseenter="showTip(this,'How often the scheduler checks if any cron template is due to fire and create a new task.')" onmouseleave="hideTip()">i</span></label><input type="number" name="si" value="${config.scheduler.checkIntervalMs}" min="100" style="width:100px"></div>
+          <div class="form-row"><label>Catch Up<span class="tip" onmouseenter="showTip(this,'Behavior for missed runs after downtime. next: skip all missed, wait for the next scheduled time. latest: run only the most recent missed execution. all: run every missed execution in sequence.')" onmouseleave="hideTip()">i</span></label><select name="cu" style="width:100px">
             <option value="next" ${config.scheduler.catchUp === 'next' ? 'selected' : ''}>next</option>
             <option value="all" ${config.scheduler.catchUp === 'all' ? 'selected' : ''}>all</option>
             <option value="latest" ${config.scheduler.catchUp === 'latest' ? 'selected' : ''}>latest</option>
           </select></div>
-          <div class="ir"><span class="ik">Active Templates</span><span class="iv">${templates.filter(t => t.enabled).length} / ${templates.length}</span></div>
+          <div class="ir"><span class="ik">Active Templates<span class="tip" onmouseenter="showTip(this,'Number of cron templates currently enabled and scheduling tasks automatically.')" onmouseleave="hideTip()">i</span></span><span class="iv">${templates.filter(t => t.enabled).length} / ${templates.length}</span></div>
         </div>
         <div class="card">
           <h3 style="margin:0 0 12px;font-size:14px">Watchdog Config</h3>
-          <div class="form-row"><label>Heartbeat Timeout</label><input type="number" name="wt" value="${config.watchdog.heartbeatTimeoutMs / 1000}" min="10" style="width:100px"></div>
-          <div class="form-row"><label>Cleanup Interval</label><input type="number" name="wc" value="${config.watchdog.cleanupIntervalMs / 1000}" min="10" style="width:100px"></div>
-          <div class="form-row"><label>Retention (days)</label><input type="number" name="rd" value="${config.watchdog.retentionDays}" min="1" style="width:100px"></div>
-          <div class="ir"><span class="ik">Log Format</span><span class="iv">${config.logging.format}</span></div>
+          <div class="form-row"><label>Heartbeat Timeout<span class="tip" onmouseenter="showTip(this,'If a running task sends no heartbeat for this many seconds, the Watchdog marks it as dead and frees its concurrency slot.')" onmouseleave="hideTip()">i</span></label><input type="number" name="wt" value="${config.watchdog.heartbeatTimeoutMs / 1000}" min="10" style="width:100px"></div>
+          <div class="form-row"><label>Cleanup Interval<span class="tip" onmouseenter="showTip(this,'How often the Watchdog scans for stuck or dead tasks and cleans up old execution logs.')" onmouseleave="hideTip()">i</span></label><input type="number" name="wc" value="${config.watchdog.cleanupIntervalMs / 1000}" min="10" style="width:100px"></div>
+          <div class="form-row"><label>Retention (days)<span class="tip" onmouseenter="showTip(this,'Execution logs older than this number of days are automatically deleted to keep the database size in check.')" onmouseleave="hideTip()">i</span></label><input type="number" name="rd" value="${config.watchdog.retentionDays}" min="1" style="width:100px"></div>
+          <div class="ir"><span class="ik">Log Format<span class="tip" onmouseenter="showTip(this,'Output format for structured logs written to disk. json is machine-readable; text is more human-friendly.')" onmouseleave="hideTip()">i</span></span><span class="iv">${config.logging.format}</span></div>
         </div>
       </div>
       <div style="text-align:center;margin-bottom:24px">
@@ -516,8 +680,8 @@ app.get('/system', async (c) => {
 
       <div class="card mt16">
         <h3 style="margin:0 0 12px;font-size:14px">Config File</h3>
-        <div class="ir"><span class="ik">Path</span><span class="iv m sm">${CONFIG_PATH}</span></div>
-        <div class="ir"><span class="ik">Exists</span><span class="iv">${configFileStatus}</span></div>
+        <div class="ir"><span class="ik">Path<span class="tip" onmouseenter="showTip(this,'Location on disk where OpenCron reads and writes its configuration file.')" onmouseleave="hideTip()">i</span></span><span class="iv m sm">${CONFIG_PATH}</span></div>
+        <div class="ir"><span class="ik">Exists<span class="tip" onmouseenter="showTip(this,'Whether the config file exists on disk. If not, OpenCron is running with built-in default values. Save Config to create it.')" onmouseleave="hideTip()">i</span></span><span class="iv">${configFileStatus}</span></div>
       </div>
 
       <div class="card mt16" style="border-color:var(--red)">
@@ -623,6 +787,283 @@ app.post('/api/database/clear', async (c) => {
     } catch (err) {
         return c.json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
+});
+
+app.post('/api/tasks', async (c) => {
+    try {
+        const body = await c.req.json();
+        if (!body.name || !body.agent || !body.prompt) {
+            return c.json({ success: false, error: 'name, agent, and prompt are required' }, 400);
+        }
+        const task = await TaskService.add({
+            name: String(body.name),
+            agent: String(body.agent),
+            model: String(body.model || 'default'),
+            prompt: String(body.prompt),
+            cwd: body.cwd ? String(body.cwd) : undefined,
+            category: String(body.category || 'general'),
+            importance: Number(body.importance ?? 3),
+            urgency: Number(body.urgency ?? 3),
+            maxRetries: Number(body.maxRetries ?? 3),
+        });
+        return c.json({ success: true, taskId: task.id });
+    } catch (err) {
+        return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+});
+
+app.post('/api/templates', async (c) => {
+    try {
+        const body = await c.req.json();
+        if (!body.name || !body.agent || !body.prompt || !body.scheduleType) {
+            return c.json({ success: false, error: 'name, agent, prompt, and scheduleType are required' }, 400);
+        }
+        const template = await TaskTemplateService.create({
+            name: String(body.name),
+            agent: String(body.agent),
+            model: String(body.model || 'default'),
+            prompt: String(body.prompt),
+            cwd: body.cwd ? String(body.cwd) : undefined,
+            category: String(body.category || 'general'),
+            importance: Number(body.importance ?? 3),
+            urgency: Number(body.urgency ?? 3),
+            maxRetries: Number(body.maxRetries ?? 3),
+            scheduleType: String(body.scheduleType) as 'cron' | 'recurring' | 'delayed',
+            cronExpr: body.cronExpr ? String(body.cronExpr) : undefined,
+            intervalMs: body.intervalMs ? Number(body.intervalMs) : undefined,
+            runAt: body.runAt ? Number(body.runAt) : undefined,
+        });
+        return c.json({ success: true, templateId: template.id });
+    } catch (err) {
+        return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+});
+
+app.get('/new', (c) => {
+    const body = `
+      <div class="card" style="max-width:780px;margin:0 auto">
+        <h2 style="margin:0 0 4px;font-size:18px">Create New Task</h2>
+        <p class="mu sm" style="margin:0 0 20px">Fill in the details below. Fields marked with <span class="hl">*</span> are required.</p>
+        <form id="task-form" onsubmit="event.preventDefault();createTask();">
+          <div class="field">
+            <label>Task Name<span class="hl">*</span> <span class="tip" onmouseenter="showTip(this,'A descriptive name to identify this task in the queue. Keep it short and meaningful.')" onmouseleave="hideTip()">i</span></label>
+            <input type="text" name="nm" placeholder="e.g. Generate weekly report" required>
+          </div>
+          <div class="field">
+            <label>Agent<span class="hl">*</span> <span class="tip" onmouseenter="showTip(this,'The AI persona that will execute the task. Must match an agent configured in your project.')" onmouseleave="hideTip()">i</span></label>
+            <input type="text" name="ag" placeholder="e.g. coder" required>
+          </div>
+          <div class="field">
+            <label>Model <span class="tip" onmouseenter="showTip(this,'Override the AI model for this task. Format: providerID/modelID. Leave as default to use the agent\\'s configured model.')" onmouseleave="hideTip()">i</span></label>
+            <input type="text" name="mo" placeholder="default" value="default">
+          </div>
+          <div class="field">
+            <label>Prompt<span class="hl">*</span> <span class="tip" onmouseenter="showTip(this,'The instruction for the AI to execute, just like a message in OpenCode chat. Use natural language and multiple lines.')" onmouseleave="hideTip()">i</span></label>
+            <textarea name="pr" placeholder="Describe what you want the AI to do..." required></textarea>
+          </div>
+          <div class="field">
+            <label>Working Directory <span class="tip" onmouseenter="showTip(this,'The project directory where the task will run. Leave empty to use the default project root.')" onmouseleave="hideTip()">i</span></label>
+            <input type="text" name="cw" placeholder="e.g. C:\\Users\\...\\my-project">
+          </div>
+
+          <div class="card" style="margin-bottom:20px;padding:14px 16px">
+            <div class="field" style="margin-bottom:8px">
+              <label>
+                <input type="radio" name="sch_mode" value="once" checked onchange="toggleScheduling()" style="width:auto;margin-right:6px">
+                Run once now
+                <span class="tip" onmouseenter="showTip(this,'Creates a single task that runs immediately when picked up by the worker.')" onmouseleave="hideTip()">i</span>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>
+                <input type="radio" name="sch_mode" value="schedule" onchange="toggleScheduling()" style="width:auto;margin-right:6px">
+                Schedule for later
+                <span class="tip" onmouseenter="showTip(this,'Creates a recurring schedule. The task will run automatically according to the timing rules you define below.')" onmouseleave="hideTip()">i</span>
+              </label>
+            </div>
+            <div id="schedule-section" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+              <div class="field">
+                <label>Type <span class="tip" onmouseenter="showTip(this,'Cron: standard cron syntax. Recurring: fixed interval between runs. Delayed: run once after a delay.')" onmouseleave="hideTip()">i</span></label>
+                <select name="sch_type" onchange="updateScheduleFields()">
+                  <option value="cron">Cron</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="delayed">Delayed</option>
+                </select>
+              </div>
+              <div id="sch-cron" class="field">
+                <label>Cron Expression <span class="tip" onmouseenter="showTip(this,'Format: minute hour day month weekday. Examples: */5 * * * * (every 5 min), 0 9 * * 1-5 (weekdays at 9 AM), 0 0 1 * * (1st of month at midnight).')" onmouseleave="hideTip()">i</span></label>
+                <input type="text" name="cron_expr" placeholder="e.g. 0 9 * * 1-5" style="font-family:monospace">
+              </div>
+              <div id="sch-recurring" class="field" style="display:none">
+                <label>Repeat every <span class="tip" onmouseenter="showTip(this,'The task will repeat at this fixed interval. The next run is scheduled after the current one finishes.')" onmouseleave="hideTip()">i</span></label>
+                <div class="field-inline">
+                  <input type="number" name="int_val" value="6" min="1" style="width:80px;flex:none">
+                  <select name="int_unit">
+                    <option value="minutes">minutes</option>
+                    <option value="hours" selected>hours</option>
+                    <option value="days">days</option>
+                  </select>
+                </div>
+              </div>
+              <div id="sch-delayed" class="field" style="display:none">
+                <label>Run in <span class="tip" onmouseenter="showTip(this,'The task will execute once, after this delay from now.')" onmouseleave="hideTip()">i</span></label>
+                <div class="field-inline">
+                  <input type="number" name="del_val" value="30" min="1" style="width:80px;flex:none">
+                  <select name="del_unit">
+                    <option value="minutes" selected>minutes</option>
+                    <option value="hours">hours</option>
+                    <option value="days">days</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label>Category <span class="tip" onmouseenter="showTip(this,'A label to organize tasks. Purely for filtering and grouping — does not affect execution.')" onmouseleave="hideTip()">i</span></label>
+              <select name="ca">
+                <option value="general">general</option>
+                <option value="translate">translate</option>
+                <option value="generate">generate</option>
+                <option value="review">review</option>
+                <option value="test">test</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Max Retries <span class="tip" onmouseenter="showTip(this,'How many times the task will retry automatically if it fails. After this limit, the task goes to Dead Letter.')" onmouseleave="hideTip()">i</span></label>
+              <select name="mr">
+                <option value="0">0 (no retries)</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-grid">
+            <div class="field">
+              <label>Importance <span class="tip" onmouseenter="showTip(this,'How critical the result is. Tasks with higher importance are processed before lower ones when the queue is busy. Scale: 1 (low) to 5 (critical).')" onmouseleave="hideTip()">i</span></label>
+              <div class="field-inline">
+                <div class="stars" id="stars-im"><input type="hidden" name="im" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
+                <span class="mu sm" id="stars-im-label">Medium</span>
+              </div>
+            </div>
+            <div class="field">
+              <label>Urgency <span class="tip" onmouseenter="showTip(this,'How soon the task needs to run. Higher urgency tasks jump ahead in the queue. Scale: 1 (not urgent) to 5 (immediate).')" onmouseleave="hideTip()">i</span></label>
+              <div class="field-inline">
+                <div class="stars" id="stars-ur"><input type="hidden" name="ur" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
+                <span class="mu sm" id="stars-ur-label">Medium</span>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:20px;display:flex;gap:10px">
+            <button type="submit" id="submit-btn" class="rf" style="font-size:14px;padding:10px 24px">Create Task</button>
+            <a href="/" class="btn" style="padding:10px 24px;text-decoration:none;display:inline-flex;align-items:center">Cancel</a>
+          </div>
+        </form>
+      </div>
+      <script>
+        initStars('stars-im');
+        initStars('stars-ur');
+      </script>`;
+    return c.html(renderLayout('New Task', 'tasks', body));
+});
+
+app.get('/runs/:id/session', async (c) => {
+    const id = Number(c.req.param('id'));
+    const { taskRuns: tr, tasks: tk } = schema;
+    const rows = await db.select({
+        id: tr.id, taskId: tr.taskId, sessionId: tr.sessionId, model: tr.model,
+        status: tr.status, startedAt: tr.startedAt, finishedAt: tr.finishedAt,
+        messagesJson: tr.messagesJson,
+        taskName: tk.name, taskAgent: tk.agent,
+    }).from(tr).innerJoin(tk, eq(tr.taskId, tk.id)).where(eq(tr.id, id));
+    const run = rows[0];
+    if (!run) return c.html(renderLayout('Session', 'runs', '<div class="ta-center mu p30">Run not found.</div>'));
+
+    let messages: any[] = [];
+    if (run.messagesJson) {
+        try { messages = JSON.parse(run.messagesJson); } catch { messages = []; }
+    }
+
+    let html = '';
+    html += `<div style="margin-bottom:16px"><a href="/runs" class="btn">&larr; Back to Execution Logs</a></div>`;
+    html += `<div class="card" style="max-width:900px;margin:0 auto">`;
+    html += `<div class="ph"><h3>Conversation — Task #${run.taskId}: ${esc(run.taskName)}</h3></div>`;
+    html += `<div style="padding:12px 16px;display:flex;gap:16px;font-size:12px;color:var(--t2);border-bottom:1px solid var(--border)">
+      <span>Run #${run.id}</span>
+      <span>Agent: <span class="tag">${esc(run.taskAgent)}</span></span>
+      ${run.model ? `<span>Model: <span class="tag">${esc(run.model)}</span></span>` : ''}
+      <span style="margin-left:auto"><span class="badge b-${run.status}">${(run.status ?? '').toUpperCase()}</span></span>
+      <span>${formatDuration(run.startedAt, run.finishedAt)}</span>
+    </div>`;
+    html += `<div style="padding:16px;max-height:70vh;overflow-y:auto">`;
+
+    if (messages.length === 0) {
+        html += `<div class="ta-center mu p30">No messages captured for this run.</div>`;
+    } else {
+        for (const msg of messages) {
+            const role = msg.info?.role || '';
+            const isAssistant = role === 'assistant';
+            const isUser = role === 'user';
+            const hasError = msg.info?.error;
+
+            if (isUser) {
+                html += `<div class="msg msg-user"><div class="msg-hd">You</div><div class="msg-bd">`;
+                for (const part of (msg.parts || [])) {
+                    if (part.type === 'text') html += `<div>${esc(part.text)}</div>`;
+                }
+                html += `</div></div>`;
+                continue;
+            }
+
+            if (isAssistant) {
+                let textParts: any[] = [];
+                let toolParts: any[] = [];
+                for (const part of (msg.parts || [])) {
+                    if (part.type === 'text') textParts.push(part);
+                    else toolParts.push(part);
+                }
+
+                if (textParts.length > 0) {
+                    html += `<div class="msg msg-assistant"><div class="msg-hd">Assistant</div><div class="msg-bd">`;
+                    for (const p of textParts) html += esc(p.text);
+                    html += `</div></div>`;
+                }
+
+                if (hasError) {
+                    const err = hasError as Record<string, unknown>;
+                    const errData = err.data as Record<string, unknown> | undefined;
+                    html += `<div class="msg msg-error"><div class="msg-hd">Error</div><div class="msg-bd">${esc(String(errData?.message ?? JSON.stringify(err)))}</div></div>`;
+                }
+
+                for (const p of toolParts) {
+                    if (p.type === 'tool_call') {
+                        html += `<div class="msg msg-toolcall"><div class="msg-hd">Tool Call: ${esc(p.tool || 'unknown')}</div><div class="msg-bd">`;
+                        if (p.args) {
+                            for (const [k, v] of Object.entries(p.args)) {
+                                const val = typeof v === 'string' && v.length > 200 ? v.substring(0, 200) + '...' : esc(String(v));
+                                html += `<div><span class="mu">${esc(k)}:</span> ${val}</div>`;
+                            }
+                        }
+                        html += `</div></div>`;
+                    } else if (p.type === 'tool_result') {
+                        html += `<div class="msg msg-toolresult"><div class="msg-hd">Tool Result</div><div class="msg-bd">`;
+                        const output = typeof p.output === 'string' ? p.output : JSON.stringify(p.output);
+                        html += esc(output.substring(0, 4000));
+                        if (output.length > 4000) html += `\n\n[truncated]`;
+                        html += `</div></div>`;
+                    }
+                }
+            }
+        }
+    }
+
+    html += `</div></div>`;
+
+    return c.html(renderLayout(`Session — Task #${run.taskId}`, 'runs', html));
 });
 
 export const dashboardApp = app;

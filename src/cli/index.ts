@@ -393,6 +393,19 @@ program
     });
 
 program
+    .command('restart')
+    .description('Restart the Gateway process via PM2')
+    .action(async () => {
+        try {
+            const { restart: pm2Restart } = await import('../daemon/pm2');
+            pm2Restart();
+        } catch (err) {
+            console.error('[opencron] Restart failed:', err instanceof Error ? err.message : String(err));
+            process.exit(1);
+        }
+    });
+
+program
     .command('install')
     .description('Install Gateway as pm2 service (auto-start on boot, crash recovery)')
     .action(async () => {

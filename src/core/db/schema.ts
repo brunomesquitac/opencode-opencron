@@ -68,6 +68,7 @@ export const taskRuns = sqliteTable('task_runs', {
     finishedAt: integer('finished_at', { mode: 'timestamp' }),
 
     log: text('log'),
+    messagesJson: text('messages_json'),
 
     // Gateway 运行时态字段（毫秒）
     lockedAt: integer('locked_at'),

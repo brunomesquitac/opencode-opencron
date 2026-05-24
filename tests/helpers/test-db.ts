@@ -53,6 +53,7 @@ export function createTestDb() {
             started_at INTEGER,
             finished_at INTEGER,
             log TEXT,
+            messages_json TEXT,
             locked_at INTEGER,
             locked_by TEXT,
             heartbeat_at INTEGER,

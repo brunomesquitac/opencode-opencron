@@ -162,6 +162,7 @@ export class WorkerEngine {
             let modelError: string | null = null;
 
             const messages = await client.session.messages({ path: { id: sessionId } });
+            const messagesJson = messages.data ? JSON.stringify(messages.data) : null;
             if (messages.data) {
                 for (const msg of messages.data) {
                     if (msg.info?.role === 'assistant') {
@@ -180,12 +181,12 @@ export class WorkerEngine {
             }
 
             if (modelError) {
-                await TaskRunService.fail(runId, modelError);
+                await TaskRunService.fail(runId, modelError, messagesJson ?? undefined);
                 await TaskService.fail(task.id, modelError);
                 console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task model error', taskId: task.id, error: modelError }));
             } else {
                 const resultLog = output.trim().slice(-8000) || '[no text output captured]';
-                await TaskRunService.done(runId, resultLog);
+                await TaskRunService.done(runId, resultLog, messagesJson ?? undefined);
                 await TaskService.done(task.id, resultLog);
                 console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'task done', taskId: task.id }));
             }

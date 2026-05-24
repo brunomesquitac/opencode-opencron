@@ -29,7 +29,19 @@ function acquireLock(): boolean {
                 sqlite.exec('COMMIT');
                 return true;
             }
-            if (now - existing.heartbeat_at < STALE_THRESHOLD_MS) {
+
+            // Check if the existing process is actually alive before trusting the heartbeat.
+            // On Windows, PM2 may kill the process without delivering SIGTERM, leaving
+            // a stale lock entry even though the process no longer exists.
+            let existingAlive = false;
+            try {
+                process.kill(existing.pid, 0);
+                existingAlive = true;
+            } catch {
+                existingAlive = false;
+            }
+
+            if (existingAlive && now - existing.heartbeat_at < STALE_THRESHOLD_MS) {
                 sqlite.exec('ROLLBACK');
                 console.error(JSON.stringify({
                     ts: new Date().toISOString(),

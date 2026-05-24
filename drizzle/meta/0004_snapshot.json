@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f9e6bdaa-5d53-428f-ba2a-6d1d2deee5b3",
+  "id": "063bbf46-8bea-47df-a758-7c0d8ec46d6c",
   "prevId": "9138ed98-286a-46b2-bcc0-fd905755e789",
   "tables": {
     "task_runs": {
@@ -59,6 +59,13 @@
         },
         "log": {
           "name": "log",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "messages_json": {
+          "name": "messages_json",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -367,13 +374,6 @@
         "depends_on": {
           "name": "depends_on",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

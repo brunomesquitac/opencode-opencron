@@ -1,5 +1,5 @@
 import { execSync, spawnSync } from "child_process";
-import { join, dirname } from "path";
+import { resolve, join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { homedir } from "os";
@@ -65,11 +65,12 @@ function installPm2(): boolean {
 
 function pm2Exec(args: string[]): { ok: boolean; output: string } {
     const bin = pm2Bin();
+    const isWin = process.platform === "win32";
     try {
-        const result = spawnSync(bin, args, {
+        const result = spawnSync(bin, isWin ? args.map(a => a.includes(' ') ? `"${a}"` : a) : args, {
             stdio: ["pipe", "pipe", "pipe"],
             encoding: "utf-8",
-            shell: process.platform === "win32",
+            shell: isWin,
         });
         const output = (result.stdout ?? "") + (result.stderr ?? "");
         return { ok: result.status === 0, output };
@@ -106,7 +107,7 @@ function findBunPath(): string {
 
 function pm2StartGateway(version: string): { ok: boolean; output: string } {
     const bunPath = findBunPath();
-    const cwd = dirname(dirname(GATEWAY_ENTRY));
+    const cwd = resolve(__dirname, "../..");
     return pm2Exec([
         "start",
         bunPath,
@@ -260,4 +261,26 @@ export function ensureGateway(): void {
     }
 
     pm2Exec(["save"]);
+}
+
+export function restart(): void {
+    const list = pm2JsonList();
+    const proc = list.find((p) => p.name === PROCESS_NAME);
+
+    if (proc) {
+        console.log("[opencron] Restarting Gateway...");
+        pm2Exec(["restart", PROCESS_NAME]);
+        console.log("[opencron] Gateway restarted successfully.");
+    } else {
+        console.log("[opencron] Gateway is not running. Starting...");
+        const version = getPackageVersion();
+        const { ok } = pm2StartGateway(version);
+        if (ok) {
+            writeRunningVersion(version);
+            pm2Exec(["save"]);
+            console.log("[opencron] Gateway started successfully.");
+        } else {
+            console.error("[opencron] Failed to start Gateway. Try \`opencron install\` first.");
+        }
+    }
 }

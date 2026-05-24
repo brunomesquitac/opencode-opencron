@@ -4,7 +4,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = join(__dirname, '../../drizzle');
+const migrationsFolder = join(__dirname, '..', '..', '..', 'drizzle');
 
 console.log('Starting database migration...');
 

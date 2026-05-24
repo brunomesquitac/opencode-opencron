@@ -27,26 +27,28 @@ export class TaskRunService {
         return result[0] || null;
     }
 
-    static async done(id: number, log?: string): Promise<TaskRun | null> {
+    static async done(id: number, log?: string, messagesJson?: string): Promise<TaskRun | null> {
         const result = await db
             .update(taskRuns)
             .set({
                 status: 'done',
                 finishedAt: new Date(),
                 log,
+                messagesJson,
             })
             .where(eq(taskRuns.id, id))
             .returning();
         return result[0] || null;
     }
 
-    static async fail(id: number, log?: string): Promise<TaskRun | null> {
+    static async fail(id: number, log?: string, messagesJson?: string): Promise<TaskRun | null> {
         const result = await db
             .update(taskRuns)
             .set({
                 status: 'failed',
                 finishedAt: new Date(),
                 log,
+                messagesJson,
             })
             .where(eq(taskRuns.id, id))
             .returning();

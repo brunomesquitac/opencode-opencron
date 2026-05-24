@@ -29,7 +29,10 @@
         "ui": "bun run src/web/index.tsx",
         "gateway": "bun run src/gateway/index.ts",
         "test": "bun test",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "release": "commit-and-tag-version",
+        "release:minor": "commit-and-tag-version --release-as minor",
+        "release:major": "commit-and-tag-version --release-as major"
     },
     "bin": {
         "opencron": "dist/cli/index.js"

@@ -266,6 +266,7 @@ program
                     maxInstances: parseInt(options.maxInstances),
                     maxRetries: parseInt(options.maxRetries),
                     retryBackoffMs: parseInt(options.retryBackoff),
+                    cwd: process.cwd(),
                 });
                 console.log(JSON.stringify({ id: tmpl.id, status: 'created', nextRunAt: tmpl.nextRunAt }, null, 2));
             })),

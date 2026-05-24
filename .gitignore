@@ -7,3 +7,5 @@ dist/
 .env
 .env.*
 .factory/
+TODOS.md
+.opencron-sf-seen.json

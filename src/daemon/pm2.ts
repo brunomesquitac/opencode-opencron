@@ -106,6 +106,7 @@ function findBunPath(): string {
 
 function pm2StartGateway(version: string): { ok: boolean; output: string } {
     const bunPath = findBunPath();
+    const cwd = dirname(dirname(GATEWAY_ENTRY));
     return pm2Exec([
         "start",
         bunPath,
@@ -117,8 +118,11 @@ function pm2StartGateway(version: string): { ok: boolean; output: string } {
         "5000",
         "--max-restarts",
         "30",
+        "--cwd",
+        cwd,
         "--",
-        GATEWAY_ENTRY,
+        "run",
+        "scripts/gateway.mjs",
     ]);
 }
 

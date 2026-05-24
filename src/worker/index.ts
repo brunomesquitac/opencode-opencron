@@ -1,14 +1,14 @@
 import { TaskService } from '@core/services/task.service';
 import { TaskRunService } from '@core/services/task-run.service';
-import { spawn, type ChildProcess } from 'child_process';
-import { join } from 'path';
 import type { GatewayConfig } from '@gateway/config';
 import type { Task } from '@core/db/schema';
+import { createOpencodeServer, createOpencodeClient } from '@opencode-ai/sdk';
 
 interface RunningTask {
     task: Task;
     runId: number;
-    child: ChildProcess;
+    controller: AbortController;
+    server: { close(): void };
     startedAt: number;
     shutdown: boolean;
 }
@@ -42,12 +42,12 @@ export class WorkerEngine {
             this.heartbeatTimer = null;
         }
 
-        const killPromises: Promise<void>[] = [];
         for (const [, entry] of this.runningTasks) {
             entry.shutdown = true;
-            killPromises.push(this.killEntry(entry));
+            entry.controller.abort();
+            entry.server.close();
         }
-        return Promise.allSettled(killPromises).then(() => {});
+        return Promise.resolve();
     }
 
     getRunningTaskIds(): number[] {
@@ -60,7 +60,6 @@ export class WorkerEngine {
 
     private poll() {
         if (this.stopped) return;
-
         this.tryDispatch().then(() => {
             if (this.stopped) return;
             this.pollTimer = setTimeout(() => this.poll(), this.cfg.pollIntervalMs);
@@ -86,79 +85,39 @@ export class WorkerEngine {
                     status: 'running',
                 });
 
-                const modelToUse = this.resolveModel(task.model);
-                const args = ['run', '--agent', 'opencron-runner', '--attach', ':4099', '--format', 'json'];
-                if (modelToUse) {
-                    args.push('-m', modelToUse);
-                }
-                args.push(`Execute task ID: ${task.id}${modelToUse ? ` OVERRIDE_MODEL=${modelToUse}` : ''}`);
-                const cwd = task.cwd || process.cwd();
-
-                const opencodeBin = process.platform === 'win32'
-                    ? join(process.env.APPDATA || '', 'npm/node_modules/opencode-ai/bin/opencode.exe')
-                    : 'opencode';
-                const child = spawn(opencodeBin, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-
-                await TaskRunService.updatePid(run.id, process.pid, child.pid ?? 0);
-
-                let output = '';
-                const handleData = (data: Buffer) => {
-                    const text = data.toString();
-                    output += text;
-                    process.stdout.write(text);
-
-                    const match = text.match(/"sessionID"\s*:\s*"(ses_[^"]+)"/);
-                    if (match) {
-                        TaskRunService.updateSessionId(run.id, match[1]).then(() => {
-                            console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'sessionId captured', taskId: task.id, sessionId: match[1] }));
-                        });
-                    }
-                };
-                child.stdout?.on('data', handleData);
-                child.stderr?.on('data', handleData);
-
-                const entry: RunningTask = { task, runId: run.id, child, startedAt: Date.now(), shutdown: false };
-                this.runningTasks.set(task.id, entry);
-
-                child.on('close', async (code) => {
-                    this.runningTasks.delete(task.id);
-                    if (task.batchId) this.activeBatchIds.delete(task.batchId);
-
-                    if (entry.shutdown) return;
-
-                    const currentRun = await TaskRunService.getById(run.id);
-                    if (!currentRun || currentRun.status !== 'running') return;
-
-                    if (code === 0) {
-                        await TaskRunService.done(run.id);
-                        await TaskService.done(task.id);
-                        console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'task done', taskId: task.id }));
-                    } else {
-                        const lastOutput = output.slice(-2000);
-                        await TaskRunService.fail(run.id, lastOutput);
-                        const currentStatus = await TaskService.getById(task.id);
-                        if (currentStatus?.status === 'running') {
-                            await TaskService.fail(task.id, 'Worker execution error: Opencode process exited abnormally');
-                        }
-                        console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task failed', taskId: task.id, code }));
-                    }
+                const controller = new AbortController();
+                const server = await createOpencodeServer({
+                    timeout: 30000,
+                    port: 0,
+                    signal: controller.signal,
                 });
 
-                child.on('error', async (err) => {
-                    this.runningTasks.delete(task.id);
-                    if (task.batchId) this.activeBatchIds.delete(task.batchId);
+                const auth = this.getServerAuth();
+                const client = createOpencodeClient({
+                    baseUrl: server.url,
+                    headers: auth ? { Authorization: auth } : undefined,
+                });
 
-                    if (entry.shutdown) return;
+                await TaskRunService.updatePid(run.id, process.pid, 0);
 
-                    const currentRun = await TaskRunService.getById(run.id);
-                    if (!currentRun || currentRun.status !== 'running') return;
+                const entry: RunningTask = {
+                    task,
+                    runId: run.id,
+                    controller,
+                    server,
+                    startedAt: Date.now(),
+                    shutdown: false,
+                };
+                this.runningTasks.set(task.id, entry);
 
-                    await TaskRunService.fail(run.id, err.message);
-                    const currentStatus = await TaskService.getById(task.id);
-                    if (currentStatus?.status === 'running') {
-                        await TaskService.fail(task.id, `spawn error: ${err.message}`);
-                    }
-                    console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task spawn error', taskId: task.id, error: err.message }));
+                this.executeTask(task, run.id, client, server, controller).catch((err) => {
+                    console.error(JSON.stringify({
+                        ts: new Date().toISOString(),
+                        level: 'error',
+                        msg: 'task execution unhandled error',
+                        taskId: task.id,
+                        error: err instanceof Error ? err.message : String(err),
+                    }));
                 });
             } catch (err) {
                 console.error(JSON.stringify({
@@ -172,49 +131,109 @@ export class WorkerEngine {
         }
     }
 
+    private async executeTask(
+        task: Task,
+        runId: number,
+        client: any,
+        server: { close(): void },
+        controller: AbortController,
+    ) {
+        let sessionId: string = '';
+        try {
+            const session = await client.session.create({
+                body: { title: task.name },
+                query: { directory: task.cwd || undefined },
+            });
+            sessionId = session.data.id;
+            await TaskRunService.updateSessionId(runId, sessionId);
+            console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'session created', taskId: task.id, sessionId }));
+
+            const promptResult = await client.session.prompt({
+                body: {
+                    parts: [{ type: 'text' as const, text: task.prompt }],
+                    agent: task.agent,
+                    model: this.parseModel(task.model),
+                },
+                path: { id: sessionId },
+            });
+            console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'prompt returned', taskId: task.id, hasData: !!promptResult.data }));
+
+            let output = '';
+            let modelError: string | null = null;
+
+            const messages = await client.session.messages({ path: { id: sessionId } });
+            if (messages.data) {
+                for (const msg of messages.data) {
+                    if (msg.info?.role === 'assistant') {
+                        if (msg.info.error) {
+                            const err = msg.info.error as Record<string, unknown>;
+                            const errData = err.data as Record<string, unknown> | undefined;
+                            modelError = `Model error: ${err.name || 'UnknownError'} — ${errData?.message || JSON.stringify(err)}`;
+                        }
+                        for (const part of msg.parts || []) {
+                            if (part.type === 'text' && (part as any).text) {
+                                output += (part as any).text as string;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (modelError) {
+                await TaskRunService.fail(runId, modelError);
+                await TaskService.fail(task.id, modelError);
+                console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task model error', taskId: task.id, error: modelError }));
+            } else {
+                const resultLog = output.trim().slice(-8000) || '[no text output captured]';
+                await TaskRunService.done(runId, resultLog);
+                await TaskService.done(task.id, resultLog);
+                console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'task done', taskId: task.id }));
+            }
+
+        } catch (err) {
+            if (controller.signal.aborted) return;
+
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            await TaskRunService.fail(runId, errorMsg);
+            const currentStatus = await TaskService.getById(task.id);
+            if (currentStatus?.status === 'running') {
+                await TaskService.fail(task.id, 'SDK execution error: ' + errorMsg);
+            }
+            console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task failed', taskId: task.id, error: errorMsg }));
+        } finally {
+            server.close();
+            this.runningTasks.delete(task.id);
+            if (task.batchId) this.activeBatchIds.delete(task.batchId);
+        }
+    }
+
     private async updateHeartbeats() {
         for (const [, entry] of this.runningTasks) {
             try {
                 await TaskRunService.heartbeat(entry.runId);
-            } catch {
-            }
+            } catch {}
         }
     }
 
-    private killEntry(entry: RunningTask): Promise<void> {
-        if (entry.child.exitCode !== null) {
-            return Promise.resolve();
-        }
-
-        return new Promise((resolve) => {
-            const timeout = setTimeout(() => {
-                try {
-                    if (entry.child.pid) process.kill(entry.child.pid, 'SIGKILL');
-                } catch {}
-                resolve();
-            }, 5000);
-
-            entry.child.on('close', () => {
-                clearTimeout(timeout);
-                resolve();
-            });
-
-            try {
-                if (entry.child.pid) {
-                    entry.child.kill('SIGTERM');
-                } else {
-                    clearTimeout(timeout);
-                    resolve();
-                }
-            } catch {
-                clearTimeout(timeout);
-                resolve();
-            }
-        });
+    private parseModel(taskModel: string | null): { providerID: string; modelID: string } | undefined {
+        if (!taskModel || taskModel === 'default') return undefined;
+        const slashIdx = taskModel.indexOf('/');
+        if (slashIdx === -1) return undefined;
+        return {
+            providerID: taskModel.substring(0, slashIdx),
+            modelID: taskModel.substring(slashIdx + 1),
+        };
     }
 
     private resolveModel(taskModel: string | null): string | null {
         if (!taskModel || taskModel === 'default') return null;
         return taskModel;
+    }
+
+    private getServerAuth(): string | null {
+        const user = process.env.OPENCODE_SERVER_USERNAME || 'opencode';
+        const pass = process.env.OPENCODE_SERVER_PASSWORD;
+        if (!pass) return null;
+        return 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
     }
 }

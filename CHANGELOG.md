@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.7](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.6...v0.1.7) (2026-05-25)
+
+
+### Bug Fixes
+
+* restore notification UI across dashboard, task/template forms and improve test UX ([73c4344](https://github.com/bmesquitadev/opencode-opencron/commit/73c4344ec874e8cdc36dd406bab859dc28335e8d))
+
 ## [0.1.6](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.5...v0.1.6) (2026-05-25)
 
 

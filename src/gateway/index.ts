@@ -109,16 +109,36 @@ async function main() {
 
     if (cfg.dashboard.enabled) {
         const { dashboardApp } = await import('@web/index');
-        Bun.serve({
-            hostname: '127.0.0.1',
-            port: cfg.dashboard.port,
-            fetch: dashboardApp.fetch,
-        });
+        const basePort = cfg.dashboard.port;
+        let port = basePort;
+        let server: any;
+        for (let attempt = 0; attempt < 100; attempt++) {
+            try {
+                server = Bun.serve({
+                    hostname: '127.0.0.1',
+                    port,
+                    fetch: dashboardApp.fetch,
+                });
+                break;
+            } catch (err: any) {
+                if (err?.code === 'EADDRINUSE' && port < basePort + 100) {
+                    port++;
+                    continue;
+                }
+                throw err;
+            }
+        }
+        if (!server) {
+            throw new Error(`Dashboard: no available port found in range ${basePort}-${basePort + 99}`);
+        }
+        if (port !== basePort) {
+            cfg.dashboard.port = port;
+        }
         console.log(JSON.stringify({
             ts: new Date().toISOString(),
             level: 'info',
             msg: 'Dashboard started',
-            url: `http://localhost:${cfg.dashboard.port}`,
+            url: `http://localhost:${port}`,
         }));
     }
 

@@ -266,6 +266,7 @@ export class TaskService {
         cwd?: string;
         limit?: number;
         offset?: number;
+        startedAfter?: number;
     } = {}): Promise<Task[]> {
         let query = db.select().from(tasks).$dynamic();
 
@@ -281,6 +282,9 @@ export class TaskService {
         }
         if (options.cwd !== undefined) {
             conditions.push(eq(tasks.cwd, options.cwd));
+        }
+        if (options.startedAfter !== undefined) {
+            conditions.push(sql`${tasks.startedAt} >= ${options.startedAfter}`);
         }
 
         if (conditions.length > 0) {
@@ -299,13 +303,16 @@ export class TaskService {
         return await query;
     }
 
-    static async stats(options: { batchId?: string; cwd?: string } = {}): Promise<Record<string, number>> {
+    static async stats(options: { batchId?: string; cwd?: string; startedAfter?: number } = {}): Promise<Record<string, number>> {
         const conditions = [];
         if (options.batchId !== undefined) {
             conditions.push(eq(tasks.batchId, options.batchId));
         }
         if (options.cwd !== undefined) {
             conditions.push(eq(tasks.cwd, options.cwd));
+        }
+        if (options.startedAfter !== undefined) {
+            conditions.push(sql`${tasks.startedAt} >= ${options.startedAfter}`);
         }
         const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
 

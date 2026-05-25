@@ -1,7 +1,7 @@
 // 任务表 Schema
 // 用于存储 AI Agent 的通用任务队列
 
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
 export const tasks = sqliteTable('tasks', {
     id: integer('id').primaryKey({ autoIncrement: true }),
@@ -76,6 +76,15 @@ export const taskRuns = sqliteTable('task_runs', {
     heartbeatAt: integer('heartbeat_at'),
     workerPid: integer('worker_pid'),
     childPid: integer('child_pid'),
+
+    toolsUsed: text('tools_used'),
+    skillsUsed: text('skills_used'),
+
+    // Token e custo
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    totalTokens: integer('total_tokens'),
+    costUsd: real('cost_usd'),
 });
 
 export type TaskRun = typeof taskRuns.$inferSelect;

@@ -2,7 +2,102 @@ import { TaskService } from '@core/services/task.service';
 import { TaskRunService } from '@core/services/task-run.service';
 import type { GatewayConfig } from '@gateway/config';
 import type { Task } from '@core/db/schema';
-import { createOpencodeServer, createOpencodeClient } from '@opencode-ai/sdk';
+import { createOpencodeClient } from '@opencode-ai/sdk';
+import { spawn } from 'child_process';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+interface OpencodeServer {
+    url: string;
+    close(): void;
+}
+
+function readDefaultModel(): string | null {
+    try {
+        const configPath = join(homedir(), '.config/opencode/opencode.jsonc');
+        if (existsSync(configPath)) {
+            const raw = readFileSync(configPath, 'utf-8');
+            const parsed = JSON.parse(raw);
+            return parsed.model || null;
+        }
+    } catch {}
+    return null;
+}
+
+function spawnOpencodeServer(cwd: string | null | undefined, signal: AbortSignal, timeout = 30000): Promise<OpencodeServer> {
+    return new Promise((resolve, reject) => {
+        const defaultModel = readDefaultModel();
+        let configContent: Record<string, unknown> = {};
+        if (defaultModel) {
+            configContent.model = defaultModel;
+        }
+        const proc = spawn('opencode', ['serve', '--hostname=127.0.0.1', '--port=0'], {
+            cwd: cwd || undefined,
+            env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(configContent) },
+            windowsHide: true,
+            shell: process.platform === 'win32',
+        });
+
+        let output = '';
+        let resolved = false;
+
+        const timer = setTimeout(() => {
+            cleanup();
+            proc.kill();
+            reject(new Error(`Timeout waiting for opencode server to start after ${timeout}ms`));
+        }, timeout);
+
+        function cleanup() {
+            clearTimeout(timer);
+            proc.stdout?.removeAllListeners();
+            proc.stderr?.removeAllListeners();
+            proc.removeAllListeners('exit');
+            proc.removeAllListeners('error');
+        }
+
+        proc.stdout?.on('data', (chunk: Buffer) => {
+            if (resolved) return;
+            output += chunk.toString();
+            for (const line of output.split('\n')) {
+                if (line.startsWith('opencode server listening')) {
+                    const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
+                    if (match) {
+                        resolved = true;
+                        cleanup();
+                        resolve({
+                            url: match[1],
+                            close() {
+                                if (proc.exitCode === null) proc.kill();
+                            },
+                        });
+                    }
+                }
+            }
+        });
+
+        proc.stderr?.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+
+        proc.on('exit', (code) => {
+            if (resolved) return;
+            cleanup();
+            reject(new Error(`opencode server exited with code ${code}${output ? '\n' + output : ''}`));
+        });
+
+        proc.on('error', (err) => {
+            if (resolved) return;
+            cleanup();
+            reject(err);
+        });
+
+        signal.addEventListener('abort', () => {
+            if (resolved) return;
+            cleanup();
+            proc.kill();
+            reject(signal.reason);
+        }, { once: true });
+    });
+}
 
 interface RunningTask {
     task: Task;
@@ -86,11 +181,7 @@ export class WorkerEngine {
                 });
 
                 const controller = new AbortController();
-                const server = await createOpencodeServer({
-                    timeout: 30000,
-                    port: 0,
-                    signal: controller.signal,
-                });
+                const server = await spawnOpencodeServer(task.cwd, controller.signal, 30000);
 
                 const auth = this.getServerAuth();
                 const client = createOpencodeClient({
@@ -141,7 +232,7 @@ export class WorkerEngine {
         let sessionId: string = '';
         try {
             const session = await client.session.create({
-                body: { title: task.name },
+                body: { title: `[OpenCron] ${task.name}` },
                 query: { directory: task.cwd || undefined },
             });
             sessionId = session.data.id;
@@ -163,6 +254,11 @@ export class WorkerEngine {
 
             const messages = await client.session.messages({ path: { id: sessionId } });
             const messagesJson = messages.data ? JSON.stringify(messages.data) : null;
+
+            const toolsUsed = new Set<string>();
+            const skillsUsed = new Set<string>();
+            let inputTokens = 0, outputTokens = 0, totalTokens = 0;
+            let costUsd = 0;
             if (messages.data) {
                 for (const msg of messages.data) {
                     if (msg.info?.role === 'assistant') {
@@ -171,13 +267,46 @@ export class WorkerEngine {
                             const errData = err.data as Record<string, unknown> | undefined;
                             modelError = `Model error: ${err.name || 'UnknownError'} — ${errData?.message || JSON.stringify(err)}`;
                         }
+                        const t = msg.info.tokens as Record<string, unknown> | undefined;
+                        if (t) {
+                            inputTokens += Number(t.input ?? 0);
+                            outputTokens += Number(t.output ?? 0);
+                            totalTokens += Number(t.total ?? 0);
+                        }
+                        if (typeof msg.info.cost === 'number') {
+                            costUsd += msg.info.cost;
+                        }
                         for (const part of msg.parts || []) {
                             if (part.type === 'text' && (part as any).text) {
                                 output += (part as any).text as string;
                             }
+                            if (part.type === 'tool') {
+                                const toolName = (part as any).tool as string;
+                                if (toolName === 'skill') {
+                                    const name = (part as any).state?.input?.name as string | undefined;
+                                    if (name) skillsUsed.add(name);
+                                } else {
+                                    toolsUsed.add(toolName);
+                                }
+                            }
                         }
                     }
                 }
+            }
+
+            if (toolsUsed.size > 0) {
+                const tools = [...toolsUsed].sort();
+                await TaskRunService.updateToolsUsed(runId, tools);
+                console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'tools used', taskId: task.id, tools }));
+            }
+            if (skillsUsed.size > 0) {
+                const skills = [...skillsUsed].sort();
+                await TaskRunService.updateSkillsUsed(runId, skills);
+                console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'skills used', taskId: task.id, skills }));
+            }
+            if (totalTokens > 0 || costUsd > 0) {
+                await TaskRunService.updateUsage(runId, inputTokens, outputTokens, totalTokens, costUsd);
+                console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'usage recorded', taskId: task.id, inputTokens, outputTokens, totalTokens, costUsd }));
             }
 
             if (modelError) {
@@ -217,17 +346,18 @@ export class WorkerEngine {
     }
 
     private parseModel(taskModel: string | null): { providerID: string; modelID: string } | undefined {
-        if (!taskModel || taskModel === 'default') return undefined;
-        const slashIdx = taskModel.indexOf('/');
+        const resolved = (!taskModel || taskModel === 'default') ? readDefaultModel() : taskModel;
+        if (!resolved) return undefined;
+        const slashIdx = resolved.indexOf('/');
         if (slashIdx === -1) return undefined;
         return {
-            providerID: taskModel.substring(0, slashIdx),
-            modelID: taskModel.substring(slashIdx + 1),
+            providerID: resolved.substring(0, slashIdx),
+            modelID: resolved.substring(slashIdx + 1),
         };
     }
 
     private resolveModel(taskModel: string | null): string | null {
-        if (!taskModel || taskModel === 'default') return null;
+        if (!taskModel || taskModel === 'default') return readDefaultModel();
         return taskModel;
     }
 

@@ -64,6 +64,33 @@ export class TaskRunService {
         return result[0] || null;
     }
 
+    static async updateToolsUsed(id: number, tools: string[]): Promise<TaskRun | null> {
+        const result = await db
+            .update(taskRuns)
+            .set({ toolsUsed: JSON.stringify(tools) })
+            .where(eq(taskRuns.id, id))
+            .returning();
+        return result[0] || null;
+    }
+
+    static async updateSkillsUsed(id: number, skills: string[]): Promise<TaskRun | null> {
+        const result = await db
+            .update(taskRuns)
+            .set({ skillsUsed: JSON.stringify(skills) })
+            .where(eq(taskRuns.id, id))
+            .returning();
+        return result[0] || null;
+    }
+
+    static async updateUsage(id: number, inputTokens: number, outputTokens: number, totalTokens: number, costUsd: number): Promise<TaskRun | null> {
+        const result = await db
+            .update(taskRuns)
+            .set({ inputTokens, outputTokens, totalTokens, costUsd })
+            .where(eq(taskRuns.id, id))
+            .returning();
+        return result[0] || null;
+    }
+
     static async updatePid(id: number, workerPid: number, childPid: number): Promise<TaskRun | null> {
         const result = await db
             .update(taskRuns)

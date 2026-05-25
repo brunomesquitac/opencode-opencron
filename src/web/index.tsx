@@ -9,6 +9,8 @@ import { db, schema } from '@core/db';
 import { loadConfig, CONFIG_PATH, type GatewayConfig } from '@gateway/config';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { getAgents, getModels, listDirectories, listRootEntries, validatePath } from '@core/opencode-config';
+import type { AgentInfo, ModelInfo } from '@core/opencode-config';
 
 const app = new Hono();
 
@@ -21,6 +23,45 @@ function formatDuration(startAt: Date | null, endAt: Date | null): string {
     if (seconds < 60) return `${seconds}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
     return `${Math.floor(seconds / 3600)}h${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+function formatTokens(n: number | null | undefined): string {
+    if (n === null || n === undefined) return '-';
+    if (n < 1000) return String(n);
+    if (n < 1000000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return (n / 1000000).toFixed(1) + 'M';
+}
+
+function formatCost(n: number | null | undefined): string {
+    if (n === null || n === undefined || n === 0) return '-';
+    if (n < 0.01) return '$' + n.toFixed(4);
+    if (n < 1) return '$' + n.toFixed(3);
+    return '$' + n.toFixed(2);
+}
+
+function getRangeCutoff(range: string): number | null {
+    const now = Math.floor(Date.now() / 1000);
+    switch (range) {
+        case '24h': return now - 86400;
+        case '7d': return now - 7 * 86400;
+        case '30d': return now - 30 * 86400;
+        default: return null;
+    }
+}
+
+function RangeBar(current: string, basePath: string, existingParams: string): string {
+    const ranges = [
+        { key: '24h', label: '24h' },
+        { key: '7d', label: '7d' },
+        { key: '30d', label: '30d' },
+        { key: '', label: 'All' },
+    ];
+    const items = ranges.map(r => {
+        const href = r.key ? basePath + '?range=' + r.key + (existingParams ? '&' + existingParams : '') : basePath + (existingParams ? '?' + existingParams : '');
+        const active = (r.key === '' && !current) || r.key === current;
+        return `<a href="${esc(href)}" class="btn ${active ? 'btn-primary' : ''}">${r.label}</a>`;
+    }).join(' ');
+    return `<div style="margin-bottom:12px;display:flex;gap:6px;align-items:center"><span class="mu sm" style="margin-right:4px">Period:</span>${items}</div>`;
 }
 
 function timeAgo(ms: number | null): string {
@@ -173,6 +214,18 @@ const SHARED_STYLES = html`
   .field-inline label { margin-bottom:0; min-width:90px; }
   .field-inline input, .field-inline select { width:auto; flex:1; }
   .hl { color:var(--yellow); font-size:12px; margin-left:4px; }
+  .cwd-row { display:flex; gap:8px; align-items:center; }
+  .cwd-input { flex:1; }
+  .cwd-status { font-size:16px; min-width:20px; text-align:center; }
+  .field-error { color:#f85149; font-size:12px; margin-top:4px; min-height:1.2em; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:1000; }
+  .modal-content { background:var(--card); border:1px solid var(--border); border-radius:8px; width:640px; max-height:520px; display:flex; flex-direction:column; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
+  .modal-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border); }
+  .modal-body { flex:1; overflow-y:auto; padding:4px 8px; min-height:200px; }
+  .modal-footer { display:flex; justify-content:flex-end; gap:8px; padding:10px 16px; border-top:1px solid var(--border); }
+  .dir-item { padding:6px 10px; cursor:pointer; border-radius:4px; font-size:13px; }
+  .dir-item:hover { background:#21262d; }
+  .dir-up { color:var(--blue); font-weight:500; border-bottom:1px solid var(--border); margin-bottom:4px; }
 </style>
 `;
 
@@ -266,12 +319,28 @@ function initStars(containerId){
 
 async function createTask(){
   var f=document.getElementById('task-form');
+  var cwdRaw=f.cw.value.trim();
+  if(cwdRaw){
+    try{
+      var vr=await fetch('/api/fs/validate?path='+encodeURIComponent(cwdRaw));
+      var vd=await vr.json();
+      if(!vd.valid){
+        document.getElementById('cwd-error').textContent='Invalid directory: '+vd.error;
+        document.getElementById('cwd-status').textContent='\u274C';
+        document.getElementById('cwd-status').style.color='#f85149';
+        return;
+      }
+    }catch(e){
+      document.getElementById('cwd-error').textContent='Validation error: '+e.message;
+      return;
+    }
+  }
   var data={
     name:f.nm.value.trim(),
     agent:f.ag.value.trim(),
     model:f.mo.value.trim()||'default',
     prompt:f.pr.value.trim(),
-    cwd:f.cw.value.trim()||null,
+    cwd:cwdRaw||null,
     category:f.ca.value,
     importance:parseInt(f.im.value)||3,
     urgency:parseInt(f.ur.value)||3,
@@ -354,12 +423,14 @@ function viewSession(runId){location.href='/runs/'+runId+'/session';}
 app.get('/', async (c) => {
     const page = Number(c.req.query('page') || '1');
     const statusFilter = c.req.query('status') || '';
+    const range = c.req.query('range') || '';
     const limit = 50;
     const offset = (page - 1) * limit;
+    const cutoffSec = getRangeCutoff(range);
 
     const [tasks, statsData] = await Promise.all([
-        TaskService.list({ limit, offset, ...(statusFilter ? { status: statusFilter as any } : {}) }),
-        TaskService.stats({}),
+        TaskService.list({ limit, offset, ...(statusFilter ? { status: statusFilter as any } : {}), ...(cutoffSec ? { startedAfter: cutoffSec } : {}) }),
+        TaskService.stats({ ...(cutoffSec ? { startedAfter: cutoffSec } : {}) }),
     ]);
 
     const taskIds = tasks.map(t => t.id);
@@ -374,13 +445,14 @@ app.get('/', async (c) => {
     };
     const totalPages = Math.ceil(counts.total / limit);
 
+    const rangeParam = range ? '&range=' + range : '';
     let filterBtns = `<div style="margin-bottom:12px;display:flex;gap:6px;">
-      <a href="/" class="btn ${!statusFilter ? 'btn-primary' : ''}">All</a>
-      <a href="/?status=pending" class="btn ${statusFilter === 'pending' ? 'btn-primary' : ''}">Pending</a>
-      <a href="/?status=running" class="btn ${statusFilter === 'running' ? 'btn-primary' : ''}">Running</a>
-      <a href="/?status=done" class="btn ${statusFilter === 'done' ? 'btn-primary' : ''}">Done</a>
-      <a href="/?status=failed" class="btn ${statusFilter === 'failed' ? 'btn-primary' : ''}">Failed</a>
-      <a href="/?status=dead_letter" class="btn ${statusFilter === 'dead_letter' ? 'btn-primary' : ''}">Dead Letter</a>
+      <a href="/${range ? '?range=' + range : ''}" class="btn ${!statusFilter ? 'btn-primary' : ''}">All</a>
+      <a href="/?status=pending${rangeParam}" class="btn ${statusFilter === 'pending' ? 'btn-primary' : ''}">Pending</a>
+      <a href="/?status=running${rangeParam}" class="btn ${statusFilter === 'running' ? 'btn-primary' : ''}">Running</a>
+      <a href="/?status=done${rangeParam}" class="btn ${statusFilter === 'done' ? 'btn-primary' : ''}">Done</a>
+      <a href="/?status=failed${rangeParam}" class="btn ${statusFilter === 'failed' ? 'btn-primary' : ''}">Failed</a>
+      <a href="/?status=dead_letter${rangeParam}" class="btn ${statusFilter === 'dead_letter' ? 'btn-primary' : ''}">Dead Letter</a>
     </div>`;
 
     let rows = '';
@@ -388,6 +460,23 @@ app.get('/', async (c) => {
         const st = (task.status ?? '').toUpperCase();
         const lr = latestRuns.get(task.id);
         const sessionBtn = lr ? `<button class="btn btn-sm" onclick="viewSession(${lr.id})">Session</button>` : '';
+        const toolsHint = lr?.toolsUsed
+            ? (() => {
+                const tools = JSON.parse(lr.toolsUsed) as string[];
+                return tools.length > 0
+                    ? `<span class="mu sm" style="cursor:default" title="${esc(tools.join(', '))}">${tools.length} tool${tools.length > 1 ? 's' : ''}</span>`
+                    : '';
+              })()
+            : '';
+        const skillsHint = lr?.skillsUsed
+            ? (() => {
+                const skills = JSON.parse(lr.skillsUsed) as string[];
+                return skills.length > 0
+                    ? `<span class="mu sm" style="cursor:default;color:var(--purple)" title="${esc(skills.join(', '))}">${skills.length} skill${skills.length > 1 ? 's' : ''}</span>`
+                    : '';
+              })()
+            : '';
+        const usageHint = [toolsHint, skillsHint].filter(Boolean).join(' &middot; ');
         rows += `<tr>
           <td class="mu">#${task.id}</td>
           <td><div style="font-weight:500">${esc(task.name)}</div><div class="mu sm el">${esc(task.prompt.substring(0, 120))}</div></td>
@@ -395,6 +484,7 @@ app.get('/', async (c) => {
           <td><span class="badge b-${task.status}">${st}</span></td>
           <td class="sm ${task.status === 'running' ? '' : 'mu'}">${formatDuration(task.startedAt, task.finishedAt)}</td>
           <td class="mu sm">${(task.retryCount ?? 0) > 0 ? task.retryCount : '-'}</td>
+          <td class="mu sm">${usageHint}</td>
           <td>
             <button class="btn btn-sm" onclick="showDetail(${task.id})">Details</button>
             ${sessionBtn}
@@ -403,7 +493,7 @@ app.get('/', async (c) => {
           </td></tr>`;
     }
 
-    const qp = statusFilter ? `&status=${statusFilter}` : '';
+    const qp = (statusFilter ? `&status=${statusFilter}` : '') + (range ? `&range=${range}` : '');
     let paging = `<div class="pn">`;
     if (page > 1) paging += `<a href="/?page=${page - 1}${qp}" class="btn">Prev</a>`;
     paging += `<span class="mu sm">Page ${page} / ${totalPages} (${counts.total} total)</span>`;
@@ -417,9 +507,10 @@ app.get('/', async (c) => {
         <div class="card"><div class="sv" style="color:var(--green)">${counts.done}</div><div class="sl">Done</div></div>
         <div class="card"><div class="sv" style="color:var(--red)">${counts.failed}</div><div class="sl">Failed / Dead</div></div>
       </div>
+      ${RangeBar(range, '/', statusFilter ? 'status=' + statusFilter : '')}
       ${filterBtns}
       <div class="panel"><table>
-        <thead><tr><th width="50">ID</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th width="60">Retries</th><th>Actions</th></tr></thead>
+        <thead><tr><th width="50">ID</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th width="60">Retries</th><th width="70">Tools</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
       ${paging}
@@ -522,21 +613,36 @@ app.get('/templates', async (c) => {
 
 app.get('/runs', async (c) => {
     const page = Number(c.req.query('page') || '1');
+    const range = c.req.query('range') || '';
     const limit = 50;
     const offset = (page - 1) * limit;
-
     const { taskRuns: tr, tasks: tk } = schema;
+    const cutoffSec = getRangeCutoff(range);
+    const timeWhere = cutoffSec ? sql`${tr.startedAt} >= ${cutoffSec}` : sql`1=1`;
     const runs = await db.select({
         id: tr.id, taskId: tr.taskId, sessionId: tr.sessionId, model: tr.model,
         status: tr.status, startedAt: tr.startedAt, finishedAt: tr.finishedAt,
         log: tr.log, heartbeatAt: tr.heartbeatAt, workerPid: tr.workerPid, childPid: tr.childPid,
+        toolsUsed: tr.toolsUsed, skillsUsed: tr.skillsUsed,
+        inputTokens: tr.inputTokens, outputTokens: tr.outputTokens,
+        totalTokens: tr.totalTokens, costUsd: tr.costUsd,
         taskName: tk.name, taskAgent: tk.agent,
     }).from(tr).innerJoin(tk, eq(tr.taskId, tk.id))
+      .where(timeWhere)
       .orderBy(desc(tr.startedAt)).limit(limit).offset(offset);
 
-    const totalResult = await db.select({ count: sql<number>`count(*)` }).from(tr);
-    const total = Number(totalResult[0]?.count ?? 0);
+    const [agg] = await db.select({
+        totalCost: sql<number>`COALESCE(SUM(${tr.costUsd}), 0)`,
+        totalTokens: sql<number>`COALESCE(SUM(${tr.totalTokens}), 0)`,
+        totalRuns: sql<number>`count(*)`,
+        doneCount: sql<number>`COALESCE(SUM(CASE WHEN ${tr.status} = 'done' THEN 1 ELSE 0 END), 0)`,
+        failedCount: sql<number>`COALESCE(SUM(CASE WHEN ${tr.status} = 'failed' THEN 1 ELSE 0 END), 0)`,
+        runningCount: sql<number>`COALESCE(SUM(CASE WHEN ${tr.status} = 'running' THEN 1 ELSE 0 END), 0)`,
+    }).from(tr).where(timeWhere);
+
+    const total = Number(agg.totalRuns ?? 0);
     const totalPages = Math.ceil(total / limit);
+    const rangeLabel = range || 'all time';
 
     let rows = '';
     const logsHtml: string[] = [];
@@ -548,12 +654,26 @@ app.get('/runs', async (c) => {
             ? `<button class="btn btn-sm" onclick="toggleLog(${run.id})">Log</button>`
             : '';
         const sessBtn = `<button class="btn btn-sm" onclick="viewSession(${run.id})">Session</button>`;
+        const toolsList = run.toolsUsed
+            ? (JSON.parse(run.toolsUsed) as string[]).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')
+            : '<span class="mu sm">-</span>';
+        const skillsList = run.skillsUsed
+            ? (JSON.parse(run.skillsUsed) as string[]).map(s => `<span class="tag" style="border-color:var(--purple);color:var(--purple)">${esc(s)}</span>`).join(' ')
+            : '';
+        const tokensStr = run.inputTokens !== null && run.outputTokens !== null
+            ? `${formatTokens(run.inputTokens)}→${formatTokens(run.outputTokens)}`
+            : '-';
+        const costStr = formatCost(run.costUsd);
+
         rows += `<tr>
           <td class="mu">#${run.id}</td>
           <td><div style="font-weight:500">${esc(run.taskName)} <span class="mu">(#${run.taskId})</span></div>
             ${run.model ? `<div class="sm"><span class="tag">${esc(run.model)}</span></div>` : ''}</td>
           <td><span class="tag">${esc(run.taskAgent)}</span></td>
+          <td class="sm" style="max-width:200px">${toolsList} ${skillsList}</td>
           <td><span class="badge b-${run.status}">${(run.status ?? '').toUpperCase()}</span></td>
+          <td class="m sm">${tokensStr}</td>
+          <td class="sm">${costStr}</td>
           <td class="sm">${formatDuration(run.startedAt, run.finishedAt)}</td>
           <td class="sm mu">${run.heartbeatAt ? timeAgo(run.heartbeatAt) : '-'}</td>
           <td><button class="btn btn-sm" onclick="showRunDetail(${run.id})">Details</button>${logBtn}${sessBtn}</td>
@@ -566,25 +686,28 @@ app.get('/runs', async (c) => {
         }
     }
 
+    const qp = range ? `?range=${range}` : '';
     let paging = `<div class="pn">`;
-    if (page > 1) paging += `<a href="/runs?page=${page - 1}" class="btn">Prev</a>`;
-    paging += `<span class="mu sm">Page ${page} / ${totalPages} (${total} records)</span>`;
-    if (page < totalPages) paging += `<a href="/runs?page=${page + 1}" class="btn">Next</a>`;
+    if (page > 1) paging += `<a href="/runs?page=${page - 1}${qp ? '&' + qp.slice(1) : ''}" class="btn">Prev</a>`;
+    paging += `<span class="mu sm">Page ${page} / ${totalPages} (${total} records, ${rangeLabel})</span>`;
+    if (page < totalPages) paging += `<a href="/runs?page=${page + 1}${qp ? '&' + qp.slice(1) : ''}" class="btn">Next</a>`;
     paging += `</div>`;
 
+    const colCount = runs.length > 0 ? 10 : 10;
     const emptyRow = runs.length === 0
-        ? `<tr><td colspan="7" class="ta-center mu p30">No execution records</td></tr>`
+        ? `<tr><td colspan="${colCount}" class="ta-center mu p30">No execution records</td></tr>`
         : '';
 
     const body = `
+      ${RangeBar(range, '/runs', '')}
       <div class="g4">
-        <div class="card"><div class="sv">${total}</div><div class="sl">Total Records</div></div>
-        <div class="card"><div class="sv" style="color:var(--green)">${runs.filter(r => r.status === 'done').length}</div><div class="sl">Success (this page)</div></div>
-        <div class="card"><div class="sv" style="color:var(--red)">${runs.filter(r => r.status === 'failed').length}</div><div class="sl">Failed (this page)</div></div>
-        <div class="card"><div class="sv" style="color:var(--blue)">${runs.filter(r => r.status === 'running').length}</div><div class="sl">Running (this page)</div></div>
+        <div class="card"><div class="sv" style="color:var(--yellow)">${formatCost(agg.totalCost)}</div><div class="sl">Total Cost (${rangeLabel})</div></div>
+        <div class="card"><div class="sv" style="color:var(--blue)">${formatTokens(agg.totalTokens)}</div><div class="sl">Total Tokens (${rangeLabel})</div></div>
+        <div class="card"><div class="sv" style="color:var(--green)">${agg.doneCount}</div><div class="sl">Done (${rangeLabel})</div></div>
+        <div class="card"><div class="sv" style="color:var(--red)">${agg.failedCount}</div><div class="sl">Failed (${rangeLabel})</div></div>
       </div>
       <div class="panel"><table>
-        <thead><tr><th width="50">Run</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th>Heartbeat</th><th>Actions</th></tr></thead>
+        <thead><tr><th width="50">Run</th><th>Task</th><th>Agent</th><th>Tools</th><th width="90">Status</th><th width="90">Tokens</th><th width="80">Cost</th><th width="70">Duration</th><th>Heartbeat</th><th>Actions</th></tr></thead>
         <tbody>${rows}${emptyRow}</tbody>
       </table></div>
       ${logsHtml.join('')}
@@ -789,11 +912,46 @@ app.post('/api/database/clear', async (c) => {
     }
 });
 
+app.get('/api/agents', (c) => {
+    const cwd = c.req.query('cwd') || undefined;
+    const agents = getAgents(cwd);
+    return c.json(agents);
+});
+
+app.get('/api/models', (c) => {
+    const cwd = c.req.query('cwd') || undefined;
+    const models = getModels(cwd);
+    return c.json(models);
+});
+
+app.get('/api/fs/browse', (c) => {
+    const path = c.req.query('path') || undefined;
+    let entries;
+    if (!path) {
+        entries = listRootEntries();
+    } else {
+        entries = listDirectories(path);
+    }
+    return c.json({ entries });
+});
+
+app.get('/api/fs/validate', (c) => {
+    const path = c.req.query('path') || '';
+    const result = validatePath(path);
+    return c.json(result);
+});
+
 app.post('/api/tasks', async (c) => {
     try {
         const body = await c.req.json();
         if (!body.name || !body.agent || !body.prompt) {
             return c.json({ success: false, error: 'name, agent, and prompt are required' }, 400);
+        }
+        if (body.cwd) {
+            const v = validatePath(String(body.cwd));
+            if (!v.valid) {
+                return c.json({ success: false, error: 'Invalid working directory: ' + v.error }, 400);
+            }
         }
         const task = await TaskService.add({
             name: String(body.name),
@@ -818,6 +976,12 @@ app.post('/api/templates', async (c) => {
         if (!body.name || !body.agent || !body.prompt || !body.scheduleType) {
             return c.json({ success: false, error: 'name, agent, prompt, and scheduleType are required' }, 400);
         }
+        if (body.cwd) {
+            const v = validatePath(String(body.cwd));
+            if (!v.valid) {
+                return c.json({ success: false, error: 'Invalid working directory: ' + v.error }, 400);
+            }
+        }
         const template = await TaskTemplateService.create({
             name: String(body.name),
             agent: String(body.agent),
@@ -840,6 +1004,17 @@ app.post('/api/templates', async (c) => {
 });
 
 app.get('/new', (c) => {
+    const agents = getAgents();
+    const models = getModels();
+
+    const agentOptions = agents.map(a =>
+        `<option value="${esc(a.name)}">${esc(a.name)}${a.description ? ' — ' + esc(a.description) : ''}</option>`
+    ).join('');
+
+    const modelSuggestions = models.map(m =>
+        `<option value="${esc(m.id)}">${esc(m.label)}</option>`
+    ).join('');
+
     const body = `
       <div class="card" style="max-width:780px;margin:0 auto">
         <h2 style="margin:0 0 4px;font-size:18px">Create New Task</h2>
@@ -850,20 +1025,31 @@ app.get('/new', (c) => {
             <input type="text" name="nm" placeholder="e.g. Generate weekly report" required>
           </div>
           <div class="field">
-            <label>Agent<span class="hl">*</span> <span class="tip" onmouseenter="showTip(this,'The AI persona that will execute the task. Must match an agent configured in your project.')" onmouseleave="hideTip()">i</span></label>
-            <input type="text" name="ag" placeholder="e.g. coder" required>
+            <label>Agent<span class="hl">*</span> <span class="tip" onmouseenter="showTip(this,'The AI persona that will execute the task. The list includes built-in agents plus custom agents from global and project configs.')" onmouseleave="hideTip()">i</span></label>
+            <select name="ag" id="ag" required data-placeholder="— Select an agent —">
+              <option value="">— Select an agent —</option>
+              ${agentOptions}
+            </select>
           </div>
           <div class="field">
             <label>Model <span class="tip" onmouseenter="showTip(this,'Override the AI model for this task. Format: providerID/modelID. Leave as default to use the agent\\'s configured model.')" onmouseleave="hideTip()">i</span></label>
-            <input type="text" name="mo" placeholder="default" value="default">
+            <input type="text" name="mo" id="mo" list="model-suggestions" placeholder="default" value="default">
+            <datalist id="model-suggestions">
+              ${modelSuggestions}
+            </datalist>
           </div>
           <div class="field">
             <label>Prompt<span class="hl">*</span> <span class="tip" onmouseenter="showTip(this,'The instruction for the AI to execute, just like a message in OpenCode chat. Use natural language and multiple lines.')" onmouseleave="hideTip()">i</span></label>
             <textarea name="pr" placeholder="Describe what you want the AI to do..." required></textarea>
           </div>
           <div class="field">
-            <label>Working Directory <span class="tip" onmouseenter="showTip(this,'The project directory where the task will run. Leave empty to use the default project root.')" onmouseleave="hideTip()">i</span></label>
-            <input type="text" name="cw" placeholder="e.g. C:\\Users\\...\\my-project">
+            <label>Working Directory <span class="tip" onmouseenter="showTip(this,'The project directory where the task will run. Agents and models available in this project will be added to the picklists above. Leave empty to use only global agents.')" onmouseleave="hideTip()">i</span></label>
+            <div class="cwd-row">
+              <input type="text" name="cw" id="cw" class="cwd-input" placeholder="e.g. C:\\Users\\...\\my-project" autocomplete="off">
+              <span id="cwd-status" class="cwd-status"></span>
+              <button type="button" id="btn-browse" class="btn" style="white-space:nowrap">Browse</button>
+            </div>
+            <div id="cwd-error" class="field-error"></div>
           </div>
 
           <div class="card" style="margin-bottom:20px;padding:14px 16px">
@@ -964,9 +1150,220 @@ app.get('/new', (c) => {
           </div>
         </form>
       </div>
+
+      <div id="browse-modal" class="modal-overlay" style="display:none">
+        <div class="modal-content">
+          <div class="modal-header">
+            <span id="modal-breadcrumb" class="mu sm"></span>
+            <button id="modal-close" class="cb" type="button">&times;</button>
+          </div>
+          <div class="modal-body" id="modal-body">
+            <div class="ta-center mu p30">Loading...</div>
+          </div>
+          <div class="modal-footer">
+            <button id="modal-cancel" class="btn" type="button">Cancel</button>
+            <button id="modal-select" class="rf" type="button" disabled>Select this folder</button>
+          </div>
+        </div>
+      </div>
+
       <script>
         initStars('stars-im');
         initStars('stars-ur');
+
+        var cwdTimeout;
+
+        function refreshAgentOptions(cwd) {
+          return fetch('/api/agents' + (cwd ? '?cwd=' + encodeURIComponent(cwd) : ''))
+            .then(function(r){return r.json()})
+            .then(function(agents){
+              var sel = document.getElementById('ag');
+              var current = sel.value;
+              sel.innerHTML = '<option value="">\u2014 Select an agent \u2014</option>';
+              agents.forEach(function(a){
+                var opt = document.createElement('option');
+                opt.value = a.name;
+                opt.textContent = a.name + (a.description ? ' \u2014 ' + a.description : '');
+                sel.appendChild(opt);
+              });
+              if (current) sel.value = current;
+            });
+        }
+
+        function refreshModelSuggestions(cwd) {
+          return fetch('/api/models' + (cwd ? '?cwd=' + encodeURIComponent(cwd) : ''))
+            .then(function(r){return r.json()})
+            .then(function(models){
+              var dl = document.getElementById('model-suggestions');
+              dl.innerHTML = '';
+              models.forEach(function(m){
+                var opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.label;
+                dl.appendChild(opt);
+              });
+            });
+        }
+
+        function refreshOptions(cwd) {
+          return Promise.all([
+            refreshAgentOptions(cwd),
+            refreshModelSuggestions(cwd),
+          ]);
+        }
+
+        function validateAndRefresh(path) {
+          var status = document.getElementById('cwd-status');
+          var error = document.getElementById('cwd-error');
+          status.textContent = '\u23F3';
+          error.textContent = '';
+
+          if (!path) {
+            status.textContent = '';
+            error.textContent = '';
+            refreshOptions('');
+            return;
+          }
+
+          fetch('/api/fs/validate?path=' + encodeURIComponent(path))
+            .then(function(r){return r.json()})
+            .then(function(result){
+              if (!result.valid) {
+                status.textContent = '\u274C';
+                status.style.color = '#f85149';
+                error.textContent = result.error;
+                refreshOptions('');
+              } else {
+                status.textContent = '\u2705';
+                status.style.color = '#3fb950';
+                error.textContent = '';
+                refreshOptions(path);
+              }
+            })
+            .catch(function(){
+              status.textContent = '\u274C';
+              status.style.color = '#f85149';
+              error.textContent = 'Validation request failed';
+            });
+        }
+
+        document.getElementById('cw').addEventListener('input', function(e){
+          clearTimeout(cwdTimeout);
+          var path = e.target.value;
+          cwdTimeout = setTimeout(function(){ validateAndRefresh(path); }, 500);
+        });
+
+        document.getElementById('cw').addEventListener('blur', function(e){
+          validateAndRefresh(e.target.value);
+        });
+
+        var modalPath = '';
+        var modalStack = [];
+
+        function openBrowseModal(parentPath) {
+          modalPath = parentPath || '';
+          modalStack = modalPath ? [modalPath] : [];
+          document.getElementById('browse-modal').style.display = 'flex';
+          loadBrowseDir(modalPath);
+        }
+
+        function loadBrowseDir(dirPath) {
+          var body = document.getElementById('modal-body');
+          body.innerHTML = '<div class="ta-center mu p30">Loading...</div>';
+          document.getElementById('modal-select').disabled = true;
+
+          var url = '/api/fs/browse';
+          if (dirPath) url += '?path=' + encodeURIComponent(dirPath);
+          fetch(url)
+            .then(function(r){return r.json()})
+            .then(function(data){
+              updateBreadcrumb(dirPath);
+              if (!data.entries || data.entries.length === 0) {
+                body.innerHTML = '<div class="ta-center mu p30">(empty directory)</div>';
+                return;
+              }
+              var html = '';
+              if (dirPath) {
+                html += '<div class="dir-item dir-up" data-path="' + (modalStack.length > 1 ? modalStack[modalStack.length - 2] : '') + '">\u2190 ..</div>';
+              }
+              data.entries.forEach(function(e){
+                html += '<div class="dir-item" data-path="' + e.path + '">\uD83D\uDCC1 ' + esc(e.name) + '</div>';
+              });
+              body.innerHTML = html;
+
+              body.querySelectorAll('.dir-item').forEach(function(el){
+                el.addEventListener('click', function(){
+                  var p = el.getAttribute('data-path');
+                  if (el.classList.contains('dir-up')) {
+                    modalStack.pop();
+                    loadBrowseDir(p);
+                  } else {
+                    modalStack.push(p);
+                    loadBrowseDir(p);
+                  }
+                });
+                el.addEventListener('dblclick', function(e){
+                  e.stopPropagation();
+                  var p = el.getAttribute('data-path');
+                  if (el.classList.contains('dir-up')) return;
+                  selectBrowsePath(p);
+                });
+              });
+              if (dirPath) {
+                document.getElementById('modal-select').disabled = false;
+              }
+            })
+            .catch(function(){
+              body.innerHTML = '<div class="ta-center mu" style="color:var(--red)">Failed to load directory</div>';
+            });
+        }
+
+        function updateBreadcrumb(dirPath) {
+          var bc = document.getElementById('modal-breadcrumb');
+          if (!dirPath) {
+            bc.textContent = 'Home';
+          } else if (dirPath.match(/^[A-Z]:\\$/i)) {
+            bc.textContent = dirPath;
+          } else {
+            bc.textContent = dirPath;
+          }
+        }
+
+        function selectBrowsePath(path) {
+          document.getElementById('cw').value = path;
+          document.getElementById('browse-modal').style.display = 'none';
+          validateAndRefresh(path);
+        }
+
+        document.getElementById('btn-browse').addEventListener('click', function(){
+          var current = document.getElementById('cw').value;
+          openBrowseModal(current || '');
+        });
+
+        document.getElementById('modal-close').addEventListener('click', function(){
+          document.getElementById('browse-modal').style.display = 'none';
+        });
+
+        document.getElementById('modal-cancel').addEventListener('click', function(){
+          document.getElementById('browse-modal').style.display = 'none';
+        });
+
+        document.getElementById('modal-select').addEventListener('click', function(){
+          if (modalStack.length > 0) {
+            selectBrowsePath(modalStack[modalStack.length - 1]);
+          }
+        });
+
+        document.getElementById('browse-modal').addEventListener('click', function(e){
+          if (e.target === this) {
+            this.style.display = 'none';
+          }
+        });
+
+        function esc(s) {
+          if (!s) return '';
+          return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
       </script>`;
     return c.html(renderLayout('New Task', 'tasks', body));
 });
@@ -977,7 +1374,9 @@ app.get('/runs/:id/session', async (c) => {
     const rows = await db.select({
         id: tr.id, taskId: tr.taskId, sessionId: tr.sessionId, model: tr.model,
         status: tr.status, startedAt: tr.startedAt, finishedAt: tr.finishedAt,
-        messagesJson: tr.messagesJson,
+        messagesJson: tr.messagesJson, toolsUsed: tr.toolsUsed, skillsUsed: tr.skillsUsed,
+        inputTokens: tr.inputTokens, outputTokens: tr.outputTokens,
+        totalTokens: tr.totalTokens, costUsd: tr.costUsd,
         taskName: tk.name, taskAgent: tk.agent,
     }).from(tr).innerJoin(tk, eq(tr.taskId, tk.id)).where(eq(tr.id, id));
     const run = rows[0];
@@ -992,10 +1391,28 @@ app.get('/runs/:id/session', async (c) => {
     html += `<div style="margin-bottom:16px"><a href="/runs" class="btn">&larr; Back to Execution Logs</a></div>`;
     html += `<div class="card" style="max-width:900px;margin:0 auto">`;
     html += `<div class="ph"><h3>Conversation — Task #${run.taskId}: ${esc(run.taskName)}</h3></div>`;
-    html += `<div style="padding:12px 16px;display:flex;gap:16px;font-size:12px;color:var(--t2);border-bottom:1px solid var(--border)">
+    const toolsList = run.toolsUsed
+        ? (JSON.parse(run.toolsUsed) as string[]).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')
+        : '<span class="mu">-</span>';
+    const skillsList = run.skillsUsed
+        ? (JSON.parse(run.skillsUsed) as string[]).map(s => `<span class="tag" style="border-color:var(--purple);color:var(--purple)">${esc(s)}</span>`).join(' ')
+        : '';
+
+    const tokensInfo = run.inputTokens !== null && run.outputTokens !== null
+        ? `<span>Tokens: ${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out</span>`
+        : '';
+    const costInfo = run.costUsd !== null && run.costUsd > 0
+        ? `<span>Cost: ${formatCost(run.costUsd)}</span>`
+        : '';
+
+    html += `<div style="padding:12px 16px;display:flex;gap:16px;font-size:12px;color:var(--t2);border-bottom:1px solid var(--border);flex-wrap:wrap">
       <span>Run #${run.id}</span>
       <span>Agent: <span class="tag">${esc(run.taskAgent)}</span></span>
       ${run.model ? `<span>Model: <span class="tag">${esc(run.model)}</span></span>` : ''}
+      <span>Tools: ${toolsList}</span>
+      ${skillsList ? `<span>Skills: ${skillsList}</span>` : ''}
+      ${tokensInfo}
+      ${costInfo}
       <span style="margin-left:auto"><span class="badge b-${run.status}">${(run.status ?? '').toUpperCase()}</span></span>
       <span>${formatDuration(run.startedAt, run.finishedAt)}</span>
     </div>`;

@@ -76,6 +76,7 @@ export class TaskTemplateService {
             runAt: 'runAt',
             maxInstances: 'maxInstances',
             retryBackoffMs: 'retryBackoffMs',
+            notifyOn: 'notifyOn',
         };
 
         const updateData: Record<string, unknown> = { updatedAt: Date.now() };

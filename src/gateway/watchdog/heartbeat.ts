@@ -1,8 +1,10 @@
 import { TaskRunService } from '@core/services/task-run.service';
 import { TaskService } from '@core/services/task.service';
 import { computeBackoff } from '@core/backoff';
+import type { NotificationsConfig } from '@gateway/channels/channel.interface';
+import { notifyTask } from '@gateway/notifications/service';
 
-export async function checkHeartbeats(heartbeatTimeoutMs: number) {
+export async function checkHeartbeats(heartbeatTimeoutMs: number, notifications: NotificationsConfig, dashboardPort?: number) {
     const staleRuns = await TaskRunService.getStaleRuns(heartbeatTimeoutMs);
     if (staleRuns.length === 0) return;
 
@@ -15,13 +17,25 @@ export async function checkHeartbeats(heartbeatTimeoutMs: number) {
                 }
             }
 
-            await TaskRunService.fail(run.runId, `心跳超时 (${heartbeatTimeoutMs / 1000}s)，Watchdog kill`);
+            await TaskRunService.fail(run.runId, `Heartbeat timeout (${heartbeatTimeoutMs / 1000}s), Watchdog kill`);
 
             const newRetryCount = run.taskRetryCount + 1;
             const maxRetries = run.taskMaxRetries;
 
             if (newRetryCount >= maxRetries) {
                 await TaskService.markDeadLetter(run.taskId, newRetryCount);
+                const task = await TaskService.getById(run.taskId);
+                if (task) {
+                    notifyTask(task, 'dead_letter', notifications, dashboardPort).catch((err) => {
+                        console.error(JSON.stringify({
+                            ts: new Date().toISOString(),
+                            level: 'error',
+                            msg: 'notification failed',
+                            taskId: run.taskId,
+                            error: err instanceof Error ? err.message : String(err),
+                        }));
+                    });
+                }
                 console.log(JSON.stringify({
                     ts: new Date().toISOString(),
                     level: 'warn',

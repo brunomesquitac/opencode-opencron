@@ -1,19 +1,19 @@
-# plugin/ 目录文档
+# plugin/ directory docs
 
-> [输入]: @opencode-ai/plugin SDK，src/core/services 中的服务
-> [输出]: OpenCode MCP 插件，注册工具集供 Agent 调用
-> [定位]: 将 SuperTask 能力暴露给 OpenCode Agent 的插件层
+> [Input]: @opencode-ai/plugin SDK, services from src/core/services
+> [Output]: OpenCode MCP plugins, registering tool sets for Agent use
+> [Purpose]: Plugin layer that exposes task capabilities to OpenCode Agent
 
-## 文件
+## Files
 
-| 文件 | 导出 | 工具前缀 | 工具数量 |
-|------|------|---------|---------|
-| `supertask.ts` | `SuperTaskPlugin` | `supertask_` | 10 个（add/next/start/done/fail/status/retry/list/get/schedule） |
-| `task.ts` | `TaskPlugin` | `task_` | 7 个（add/next/start/done/fail/status/retry） |
+| File | Export | Tool prefix | Tools |
+|------|--------|-------------|-------|
+| `opencron.ts` | `opencronPlugin` | `opencron_` | 10 (add/next/start/done/fail/status/retry/list/get/schedule) |
+| `task.ts` | `TaskPlugin` | `task_` | 7 (add/next/start/done/fail/status/retry) |
 
-## 设计
+## Design
 
-- 使用 `@opencode-ai/plugin` SDK 的 `tool()` 注册
-- 参数 schema 使用 zod 风格定义
-- 默认 `process.cwd()` 作为项目隔离 cwd
-- 返回值统一为 JSON 字符串
+- Registered via `@opencode-ai/plugin` SDK's `tool()`
+- Parameter schemas use zod-style definitions
+- Default `process.cwd()` as project isolation cwd
+- Return values are always JSON strings

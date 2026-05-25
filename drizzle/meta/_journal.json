@@ -43,6 +43,20 @@
       "when": 1779681490744,
       "tag": "0005_tiny_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779682500000,
+      "tag": "0006_funny_captain_flint",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1779683500000,
+      "tag": "0007_happy_iron_fist",
+      "breakpoints": true
     }
   ]
 }

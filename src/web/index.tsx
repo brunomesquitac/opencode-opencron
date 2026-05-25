@@ -6,11 +6,80 @@ import { TaskRunService } from '@core/services/task-run.service';
 import { TaskTemplateService } from '@core/services/task-template.service';
 import { desc, sql, eq } from 'drizzle-orm';
 import { db, schema } from '@core/db';
-import { loadConfig, CONFIG_PATH, type GatewayConfig } from '@gateway/config';
+import { loadConfig, CONFIG_PATH, type GatewayConfig, expandEnvVars, getActiveChannels } from '@gateway/config';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { getAgents, getModels, listDirectories, listRootEntries, validatePath } from '@core/opencode-config';
 import type { AgentInfo, ModelInfo } from '@core/opencode-config';
+import { healthCheckAll, sendTestNotification } from '@gateway/notifications/service';
+import type { ChannelName, NotificationsConfig } from '@gateway/channels/channel.interface';
+import { CHANNELS } from '@gateway/notifications/service';
+
+const CHANNEL_ICONS: Record<string, string> = {
+    telegram: `<svg width="14" height="14" viewBox="0 0 24 24" fill="#2AABEE"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.015-.15-.056-.212s-.174-.041-.25-.024c-.106.024-1.793 1.14-5.062 3.345-.48.33-.913.49-1.302.48-.428-.009-1.252-.242-1.865-.44-.752-.245-1.349-.374-1.297-.79.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.53 6.998-3.015 3.333-1.386 4.025-1.627 4.477-1.635.1-.002.32.023.463.14.12.1.153.23.17.33.016.1.036.32.02.5z"/></svg>`,
+    discord: `<svg width="14" height="14" viewBox="0 0 24 24" fill="#5865F2"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>`,
+    slack: `<svg width="14" height="14" viewBox="0 0 24 24"><path fill="#E01E5A" d="M5.04 15.16a2.52 2.52 0 0 1-2.52 2.52 2.52 2.52 0 0 1-2.52-2.52 2.52 2.52 0 0 1 2.52-2.52h2.52v2.52zm1.26 0a2.52 2.52 0 0 1 2.52-2.52 2.52 2.52 0 0 1 2.52 2.52v6.32a2.52 2.52 0 0 1-2.52 2.52 2.52 2.52 0 0 1-2.52-2.52v-6.32z"/><path fill="#36C5F0" d="M8.84 5.04a2.52 2.52 0 0 1-2.52-2.52 2.52 2.52 0 0 1 2.52-2.52 2.52 2.52 0 0 1 2.52 2.52v2.52H8.84zm0 1.26a2.52 2.52 0 0 1 2.52 2.52 2.52 2.52 0 0 1-2.52 2.52H2.52A2.52 2.52 0 0 1 0 8.82a2.52 2.52 0 0 1 2.52-2.52h6.32z"/><path fill="#2EB67D" d="M18.96 8.84a2.52 2.52 0 0 1 2.52-2.52 2.52 2.52 0 0 1 2.52 2.52 2.52 2.52 0 0 1-2.52 2.52h-2.52V8.84zm-1.26 0a2.52 2.52 0 0 1-2.52 2.52 2.52 2.52 0 0 1-2.52-2.52V2.52A2.52 2.52 0 0 1 15.18 0a2.52 2.52 0 0 1 2.52 2.52v6.32z"/><path fill="#ECB22E" d="M15.16 18.96a2.52 2.52 0 0 1 2.52 2.52 2.52 2.52 0 0 1-2.52 2.52 2.52 2.52 0 0 1-2.52-2.52v-2.52h2.52zm0-1.26a2.52 2.52 0 0 1-2.52-2.52 2.52 2.52 0 0 1 2.52-2.52h6.32a2.52 2.52 0 0 1 2.52 2.52 2.52 2.52 0 0 1-2.52 2.52h-6.32z"/></svg>`,
+    email: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EA4335" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 4-10 8L2 4"/></svg>`,
+    webhook: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+    telegram: 'Telegram',
+    discord: 'Discord',
+    slack: 'Slack',
+    email: 'Email',
+    webhook: 'Webhook',
+};
+
+const CHANNEL_SETUP_GUIDES: Record<string, string> = {
+    telegram: `
+        <strong>Step 1 — Create your bot</strong><br>
+        Open Telegram and search for <code>@BotFather</code>.<br>
+        Send the command <code>/newbot</code> and follow the instructions.<br>
+        BotFather will give you a <strong>token</strong> at the end.<br><br>
+        <strong>Step 2 — Get your Chat ID</strong><br>
+        Send any message to your new bot.<br>
+        Then open in your browser:<br>
+        <code>https://api.telegram.org/botYOUR_TOKEN/getUpdates</code><br>
+        Look for <code>"chat":{"id":123456789}</code> in the response.<br>
+        That number is your <strong>Chat ID</strong>.<br><br>
+        <strong>Step 3 — Fill the fields and test</strong><br>
+        Paste the token and chat ID below, then click <strong>Test</strong>.`,
+    discord: `
+        <strong>Step 1 — Create a webhook</strong><br>
+        Open Discord → go to your server → click the gear icon next to a channel → <strong>Integrations</strong> → <strong>Webhooks</strong> → <strong>New Webhook</strong>.<br>
+        Give it a name (e.g. OpenCron) and click <strong>Copy Webhook URL</strong>.<br><br>
+        <strong>Step 2 — Paste and test</strong><br>
+        Paste the URL below, then click <strong>Test</strong>.`,
+    slack: `
+        <strong>Step 1 — Create a Slack app</strong><br>
+        Go to <code>https://api.slack.com/apps</code> → <strong>Create New App</strong> → <strong>From scratch</strong>.<br>
+        Give it a name (e.g. OpenCron) and choose your workspace.<br><br>
+        <strong>Step 2 — Enable Incoming Webhooks</strong><br>
+        In the left menu: <strong>Incoming Webhooks</strong> → toggle On.<br>
+        Click <strong>Add New Webhook to Workspace</strong> → pick a channel → <strong>Allow</strong>.<br>
+        Copy the <strong>Webhook URL</strong> that appears.<br><br>
+        <strong>Step 3 — Paste and test</strong><br>
+        Paste the URL below, then click <strong>Test</strong>.`,
+    email: `
+        <strong>For Gmail:</strong><br>
+        1. Go to Google Account → <strong>Security</strong> → enable <strong>2-Step Verification</strong><br>
+        2. Then go to <strong>App Passwords</strong> → generate a password for OpenCron<br>
+        3. Use <code>smtp.gmail.com</code> as host, port <code>587</code><br><br>
+        <strong>For other providers</strong> (Outlook, Yahoo, etc.):<br>
+        Use your provider's SMTP settings. Check their documentation for the correct host and port.<br><br>
+        Fill all fields below and click <strong>Test</strong>.`,
+    webhook: `
+        <strong>Any URL that accepts POST with JSON</strong><br>
+        You can use this for custom integrations:<br>
+        • <strong>n8n</strong> — create a Webhook trigger, copy the URL<br>
+        • <strong>Zapier / Make</strong> — create a webhook trigger<br>
+        • <strong>Custom API</strong> — your own endpoint<br><br>
+        <strong>Headers (optional)</strong><br>
+        If the URL requires authentication, add a JSON object with headers, e.g.:<br>
+        <code>{"X-API-Key": "your-key"}</code><br><br>
+        Fill the URL below and click <strong>Test</strong>.`,
+};
 
 const app = new Hono();
 
@@ -146,7 +215,7 @@ const SHARED_STYLES = html`
   .btn-primary:hover { opacity:0.85; color:#fff; }
   .btn-danger:hover { color:var(--red); border-color:var(--red); }
   .btn-warn:hover { color:var(--yellow); border-color:var(--yellow); }
-  .rf { background:var(--green); color:white; border:none; padding:6px 16px; border-radius:6px; font-weight:600; cursor:pointer; text-decoration:none; }
+  .rf { background:var(--green); color:white; border:none; padding:6px 16px; border-radius:6px; font-weight:600; cursor:pointer; text-decoration:none; font-family:inherit; font-size:inherit; line-height:inherit; display:inline-flex; align-items:center; }
   .rf:hover { opacity:0.9; }
   .m { font-family:monospace; font-size:12px; }
   .mu { color:var(--t2); }
@@ -226,27 +295,42 @@ const SHARED_STYLES = html`
   .dir-item { padding:6px 10px; cursor:pointer; border-radius:4px; font-size:13px; }
   .dir-item:hover { background:#21262d; }
   .dir-up { color:var(--blue); font-weight:500; border-bottom:1px solid var(--border); margin-bottom:4px; }
+  .ar-label { color:var(--t2); font-size:13px; margin-left:12px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; user-select:none; }
+  .ar-label input { accent-color:var(--green); cursor:pointer; }
+  .ar-sel { background:#0d1117; border:1px solid var(--border); color:var(--t1); padding:2px 4px; border-radius:4px; font-size:12px; margin-left:4px; cursor:pointer; }
+  .ar-sel:focus { outline:none; border-color:var(--blue); }
+  .ar-status { color:var(--green); font-size:11px; margin-left:6px; }
 </style>
 `;
 
 function renderLayout(title: string, activeTab: string, body: string): string {
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title} - OpenCron</title>${SHARED_STYLES}
 <script>
-async function retryTask(id){if(!confirm('Retry task #'+id+'?'))return;await fetch('/api/tasks/'+id+'/retry',{method:'POST'});location.reload();}
-async function deleteTask(id){if(!confirm('Delete task #'+id+'?'))return;await fetch('/api/tasks/'+id,{method:'DELETE'});location.reload();}
+var _arTimer=null,_arRefreshing=false;
+function _reExecScripts(c){Array.from(c.querySelectorAll('script')).forEach(function(s){var ns=document.createElement('script');if(s.src){ns.src=s.src;ns.async=false;}else{ns.textContent=s.textContent;}s.parentNode.replaceChild(ns,s);});}
+function smartRefresh(){if(_arRefreshing||document.querySelector('dialog[open]'))return;_arRefreshing=true;var u=location.pathname+location.search;fetch(u).then(function(r){return r.text();}).then(function(h){var p=new DOMParser(),d=p.parseFromString(h,'text/html'),nm=d.getElementById('page-content');if(!nm){_arRefreshing=false;return;}var om=document.getElementById('page-content'),sy=window.scrollY;om.outerHTML=nm.outerHTML;window.scrollTo(0,sy);_reExecScripts(document.getElementById('page-content'));_arRefreshing=false;}).catch(function(){_arRefreshing=false;});}
+function toggleAutoRefresh(){var e=document.getElementById('ar-toggle').checked;localStorage.setItem('ar',e?'1':'0');if(e){var i=parseInt(document.getElementById('ar-interval').value);_startAR(i);}else{_stopAR();}}
+function changeAutoInterval(){localStorage.setItem('ar-int',document.getElementById('ar-interval').value);if(document.getElementById('ar-toggle').checked){_stopAR();_startAR(parseInt(document.getElementById('ar-interval').value));}}
+function _startAR(ms){_stopAR();_arTimer=setInterval(smartRefresh,ms);}
+function _stopAR(){if(_arTimer){clearInterval(_arTimer);_arTimer=null;}}
+document.addEventListener('DOMContentLoaded',function(){var ar=localStorage.getItem('ar');if(ar===null){ar='1';localStorage.setItem('ar','1');}if(ar==='1'){document.getElementById('ar-toggle').checked=true;var i=parseInt(localStorage.getItem('ar-int')||'5000');document.getElementById('ar-interval').value=String(i);_startAR(i);}});
+
+async function retryTask(id){if(!confirm('Retry task #'+id+'?'))return;await fetch('/api/tasks/'+id+'/retry',{method:'POST'});smartRefresh();}
+async function deleteTask(id){if(!confirm('Delete task #'+id+'?'))return;await fetch('/api/tasks/'+id,{method:'DELETE'});smartRefresh();}
 async function showDetail(id){try{const r=await fetch('/api/tasks/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert('Failed to load details');}}
 async function showRunDetail(id){try{const r=await fetch('/api/runs/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert('Failed to load details');}}
 async function showTemplateDetail(id){try{const r=await fetch('/api/templates/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert('Failed to load details');}}
-async function enableTmpl(id){await fetch('/api/templates/'+id+'/enable',{method:'POST'});location.reload();}
-async function disableTmpl(id){if(!confirm('Disable this template?'))return;await fetch('/api/templates/'+id+'/disable',{method:'POST'});location.reload();}
-async function deleteTmpl(id){if(!confirm('Delete this template? This cannot be undone!'))return;await fetch('/api/templates/'+id,{method:'DELETE'});location.reload();}
-async function triggerTmpl(id){if(!confirm('Trigger now?'))return;const r=await fetch('/api/templates/'+id+'/trigger',{method:'POST'});const d=await r.json();if(d.success){alert('Task #'+d.taskId+' created');location.reload();}else{alert('Trigger failed');}}
+async function enableTmpl(id){await fetch('/api/templates/'+id+'/enable',{method:'POST'});smartRefresh();}
+async function disableTmpl(id){if(!confirm('Disable this template?'))return;await fetch('/api/templates/'+id+'/disable',{method:'POST'});smartRefresh();}
+async function deleteTmpl(id){if(!confirm('Delete this template? This cannot be undone!'))return;await fetch('/api/templates/'+id,{method:'DELETE'});smartRefresh();}
+async function triggerTmpl(id){if(!confirm('Trigger now?'))return;const r=await fetch('/api/templates/'+id+'/trigger',{method:'POST'});const d=await r.json();if(d.success){alert('Task #'+d.taskId+' created');smartRefresh();}else{alert('Trigger failed');}}
 function toggleLog(id){const el=document.getElementById('log-'+id);el.style.display=el.style.display==='none'?'block':'none';}
 
 
 
 async function cloneTask(id){
   try{
+    if(activeChannels.length===0)await loadActiveChannels();
     const [rTask, rAgents] = await Promise.all([
       fetch('/api/tasks/'+id),
       fetch('/api/agents'),
@@ -271,6 +355,14 @@ async function cloneTask(id){
     document.getElementById('et-stars-im').querySelector('input[type=hidden]').value=t.importance||3;
     document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value=t.urgency||3;
     initStars('et-stars-im');initStars('et-stars-ur');
+    document.getElementById('etc-notify-section').innerHTML=modalNotifyHtml('etc');
+    modalBuildNotifyTable('etc');
+    if(t.notifyOn){
+      var etcNo=typeof t.notifyOn==='string'?JSON.parse(t.notifyOn):t.notifyOn;
+      document.querySelector('input[name="etc-notify-mode"][value="custom"]').checked=true;
+      modalNotifyToggle('etc');
+      modalSetNotifyChecks('etc',etcNo);
+    }
     document.getElementById('et-modal').showModal();
   }catch(e){alert('Failed to load task: '+e.message);}
 }
@@ -296,16 +388,19 @@ async function saveCloneTask(){
     urgency:parseInt(document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value)||3,
   };
   if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+  var etcMode=document.querySelector('input[name="etc-notify-mode"]:checked');
+  if(etcMode&&etcMode.value==='custom'){data.notifyOn=modalGetNotifyChannels('etc');}
   try{
     const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const d=await r.json();
-    if(d.success){document.getElementById('et-modal').close();document.getElementById('toast').textContent='Task #'+d.taskId+' created (Clone)';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){location.reload();},1500);}
+    if(d.success){document.getElementById('et-modal').close();document.getElementById('toast').textContent='Task #'+d.taskId+' created (Clone)';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){smartRefresh();},1500);}
     else{alert('Create failed: '+d.error);}
   }catch(e){alert('Create failed: '+e.message);}
 }
 
 async function editTemplate(id){
   try{
+    if(activeChannels.length===0)await loadActiveChannels();
     const [rTmpl, rAgents, rModels]=await Promise.all([
       fetch('/api/templates/'+id),
       fetch('/api/agents'),
@@ -342,6 +437,14 @@ async function editTemplate(id){
     document.getElementById('etm-intervalunit').value=t.intervalMs?(t.intervalMs%86400000===0?'days':t.intervalMs%3600000===0?'hours':'minutes'):'hours';
     document.getElementById('etm-delayval').value=t.runAt?Math.floor(Math.max((t.runAt-Date.now())/60000,1))||30:30;
     t.enabled?document.getElementById('etm-status').textContent='Enabled':document.getElementById('etm-status').textContent='Disabled';
+    document.getElementById('etm-notify-section').innerHTML=modalNotifyHtml('etm');
+    modalBuildNotifyTable('etm');
+    if(t.notifyOn){
+      var etmNo=typeof t.notifyOn==='string'?JSON.parse(t.notifyOn):t.notifyOn;
+      document.querySelector('input[name="etm-notify-mode"][value="custom"]').checked=true;
+      modalNotifyToggle('etm');
+      modalSetNotifyChecks('etm',etmNo);
+    }
     editTmplToggleFields();
     document.getElementById('etm-modal').showModal();
   }catch(e){alert('Failed to load template: '+e.message);}
@@ -377,6 +480,8 @@ async function saveEditTemplate(){
     scheduleType:document.getElementById('etm-schtype').value,
   };
   if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+  var etmMode=document.querySelector('input[name="etm-notify-mode"]:checked');
+  if(etmMode&&etmMode.value==='custom'){data.notifyOn=modalGetNotifyChannels('etm');}
   const mults={minutes:60000,hours:3600000,days:86400000};
   if(data.scheduleType==='cron'){
     data.cronExpr=document.getElementById('etm-cronexpr').value.trim();
@@ -394,7 +499,7 @@ async function saveEditTemplate(){
   try{
     const r=await fetch('/api/templates/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const d=await r.json();
-    if(d.success){document.getElementById('etm-modal').close();document.getElementById('toast').textContent='Template #'+id+' updated successfully';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){location.reload();},1500);}
+    if(d.success){document.getElementById('etm-modal').close();document.getElementById('toast').textContent='Template #'+id+' updated successfully';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){smartRefresh();},1500);}
     else{alert('Update failed: '+d.error);}
   }catch(e){alert('Update failed: '+e.message);}
 }
@@ -405,7 +510,7 @@ async function clearDatabase(){
   try{
     const r=await fetch('/api/database/clear',{method:'POST'});
     const d=await r.json();
-    if(d.success){alert('Database cleared');location.reload();}
+    if(d.success){alert('Database cleared');smartRefresh();}
     else{alert('Clear failed: '+d.error);}
   }catch(e){alert('Clear failed: '+e.message);}
 }
@@ -502,6 +607,14 @@ async function createTask(){
     urgency:parseInt(f.ur.value)||3,
     maxRetries:parseInt(f.mr.value)||3,
   };
+  if(f.notify_mode && f.notify_mode.value==='custom'){
+    var notifyOn = {
+      on_success: getCheckedNotifyChannels('on_success'),
+      on_failure: getCheckedNotifyChannels('on_failure'),
+      on_dead_letter: getCheckedNotifyChannels('on_dead_letter'),
+    };
+    data.notifyOn = notifyOn;
+  }
   if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
 
   var mode=f.sch_mode.value;
@@ -554,6 +667,117 @@ function updateScheduleFields(){
 }
 
 function viewSession(runId){location.href='/runs/'+runId+'/session';}
+
+var activeChannels = [];
+
+async function loadActiveChannels(){
+  try{
+    var r = await fetch('/api/notifications/active-channels');
+    var d = await r.json();
+    activeChannels = d.channels || [];
+    buildNotifyCustomTable();
+  }catch(e){}
+}
+
+function buildNotifyCustomTable(){
+  var container = document.getElementById('notify-custom-table');
+  if(!container) return;
+  if(activeChannels.length === 0){
+    container.innerHTML = '<p class="mu sm">No notification channels configured. Set up channels in the <a href="/notifications">Notifications tab</a> first.</p>';
+    return;
+  }
+  var channelNames = {telegram:'Telegram',discord:'Discord',slack:'Slack',email:'Email',webhook:'Webhook'};
+  var events = {on_success:'&#x2705; Done',on_failure:'&#x274C; Fail',on_dead_letter:'&#x1F480; Dead'};
+  var html = '<table><thead><tr><th>Event</th>';
+  activeChannels.forEach(function(ch){ html += '<th>' + (channelNames[ch]||ch) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  Object.keys(events).forEach(function(ev){
+    html += '<tr><td style="font-size:12px">' + events[ev] + '</td>';
+    activeChannels.forEach(function(ch){
+      var checked = (ev === 'on_failure') ? ' checked' : '';
+      html += '<td style="text-align:center"><input type="checkbox" name="nc-' + ev + '-' + ch + '"' + checked + ' style="width:auto"></td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function getCheckedNotifyChannels(prefix){
+  var names = activeChannels;
+  return names.filter(function(n){
+    var el = document.querySelector('input[name="nc-' + prefix + '-' + n + '"]');
+    return el && el.checked;
+  });
+}
+
+function toggleNotifyMode(){
+  var f = document.getElementById('task-form');
+  var isCustom = f.notify_mode.value === 'custom';
+  document.getElementById('notify-custom-section').style.display = isCustom ? 'block' : 'none';
+}
+
+function modalNotifyToggle(prefix){
+  var customEl = document.querySelector('input[name="' + prefix + '-notify-mode"][value="custom"]');
+  var isCustom = customEl && customEl.checked;
+  var section = document.getElementById(prefix + '-notify-custom');
+  if(section) section.style.display = isCustom ? 'block' : 'none';
+}
+
+function modalBuildNotifyTable(prefix){
+  var container = document.getElementById(prefix + '-notify-custom');
+  if(!container) return;
+  if(activeChannels.length === 0){
+    container.innerHTML = '<p class="mu sm">No channels configured. Setup in <a href="/notifications">Notifications</a>.</p>';
+    return;
+  }
+  var channelNames = {telegram:'Telegram',discord:'Discord',slack:'Slack',email:'Email',webhook:'Webhook'};
+  var events = {on_success:'&#x2705; Done',on_failure:'&#x274C; Fail',on_dead_letter:'&#x1F480; Dead'};
+  var html = '<table><thead><tr><th>Event</th>';
+  activeChannels.forEach(function(ch){ html += '<th>' + (channelNames[ch]||ch) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  Object.keys(events).forEach(function(ev){
+    html += '<tr><td style="font-size:12px">' + events[ev] + '</td>';
+    activeChannels.forEach(function(ch){
+      html += '<td style="text-align:center"><input type="checkbox" name="' + prefix + '-' + ev + '-' + ch + '" style="width:auto"></td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function modalSetNotifyChecks(prefix, notifyOn){
+  if(!notifyOn) return;
+  ['on_success','on_failure','on_dead_letter'].forEach(function(ev){
+    var chs = notifyOn[ev] || [];
+    chs.forEach(function(ch){
+      var el = document.querySelector('input[name="' + prefix + '-' + ev + '-' + ch + '"]');
+      if(el) el.checked = true;
+    });
+  });
+}
+
+function modalGetNotifyChannels(prefix){
+  var result = { on_success: [], on_failure: [], on_dead_letter: [] };
+  if(activeChannels.length === 0) return result;
+  ['on_success','on_failure','on_dead_letter'].forEach(function(ev){
+    activeChannels.forEach(function(ch){
+      var el = document.querySelector('input[name="' + prefix + '-' + ev + '-' + ch + '"]');
+      if(el && el.checked) result[ev].push(ch);
+    });
+  });
+  return result;
+}
+
+function modalNotifyHtml(prefix){
+  return '<div class="card" style="margin-bottom:20px;padding:14px 16px">'
+    + '<h4 style="margin:0 0 10px;font-size:13px">Notifications</h4>'
+    + '<div class="field" style="margin-bottom:8px"><label><input type="radio" name="' + prefix + '-notify-mode" value="global" checked onchange="modalNotifyToggle(&quot;' + prefix + '&quot;)" style="width:auto;margin-right:6px">Use global defaults</label></div>'
+    + '<div class="field" style="margin-bottom:0"><label><input type="radio" name="' + prefix + '-notify-mode" value="custom" onchange="modalNotifyToggle(&quot;' + prefix + '&quot;)" style="width:auto;margin-right:6px">Custom for this task</label></div>'
+    + '<div id="' + prefix + '-notify-custom" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"></div>'
+    + '</div>';
+}
 </script>
 </head>
 <body>
@@ -562,7 +786,7 @@ function viewSession(runId){location.href='/runs/'+runId+'/session';}
 <div class="c">
   <header>
     <div><h1>OpenCron Dashboard</h1><span class="mu sm">Task scheduler management</span></div>
-    <div><a href="/new" class="rf">+ New Task</a> <a href="${activeTab === 'tasks' ? '/' : '/' + activeTab}" class="rf">Refresh</a></div>
+    <div><a href="/new" class="rf">+ New Task</a> <button class="rf" onclick="smartRefresh()">&#x21bb; Refresh</button> <label class="ar-label"><input type="checkbox" id="ar-toggle" onchange="toggleAutoRefresh()"> Auto</label><select id="ar-interval" class="ar-sel" onchange="changeAutoInterval()"><option value="5000" selected>5s</option><option value="10000">10s</option><option value="30000">30s</option><option value="60000">60s</option></select></div>
   </header>
   <nav class="tabs">
     <a href="/" class="${activeTab === 'tasks' ? 'active' : ''}">Task Queue</a>
@@ -570,7 +794,7 @@ function viewSession(runId){location.href='/runs/'+runId+'/session';}
     <a href="/runs" class="${activeTab === 'runs' ? 'active' : ''}">Execution Logs</a>
     <a href="/system" class="${activeTab === 'system' ? 'active' : ''}">System Status</a>
   </nav>
-  ${body}
+  <main id="page-content">${body}</main>
 </div>
 <dialog id="dd"><div class="dh"><h3 style="margin:0">Details</h3><button class="cb" onclick="document.getElementById('dd').close()">&times;</button></div><div class="db"><pre id="dc"></pre></div></dialog>
 </body></html>`;
@@ -584,9 +808,10 @@ app.get('/', async (c) => {
     const offset = (page - 1) * limit;
     const cutoffSec = getRangeCutoff(range);
 
-    const [tasks, statsData] = await Promise.all([
+    const [tasks, statsData, config] = await Promise.all([
         TaskService.list({ limit, offset, ...(statusFilter ? { status: statusFilter as any } : {}), ...(cutoffSec ? { startedAfter: cutoffSec } : {}) }),
         TaskService.stats({ ...(cutoffSec ? { startedAfter: cutoffSec } : {}) }),
+        Promise.resolve(loadConfig()),
     ]);
 
     const taskIds = tasks.map(t => t.id);
@@ -611,6 +836,42 @@ app.get('/', async (c) => {
       <a href="/?status=dead_letter${rangeParam}" class="btn ${statusFilter === 'dead_letter' ? 'btn-primary' : ''}">Dead Letter</a>
     </div>`;
 
+    function buildNotifyIconCell(task: typeof tasks[0], config: GatewayConfig): string {
+        let notifyChannels: Record<string, string[]> = { on_success: [], on_failure: [], on_dead_letter: [] };
+        if (task.notifyOn) {
+            try {
+                notifyChannels = JSON.parse(task.notifyOn) as Record<string, string[]>;
+            } catch {}
+        } else if (config.notifications.enabled) {
+            notifyChannels = {
+                on_success: config.notifications.defaults.on_success as string[],
+                on_failure: config.notifications.defaults.on_failure as string[],
+                on_dead_letter: config.notifications.defaults.on_dead_letter as string[],
+            };
+        }
+        const allChannels = new Set<string>();
+        for (const list of Object.values(notifyChannels)) {
+            for (const ch of list) allChannels.add(ch);
+        }
+        if (allChannels.size === 0) return '<span class="mu sm">—</span>';
+
+        let iconsHtml = '';
+        for (const ch of allChannels) {
+            const icon = CHANNEL_ICONS[ch] || '';
+            if (icon) iconsHtml += `<span style="margin-right:3px;vertical-align:middle" title="${CHANNEL_LABELS[ch] || ch}">${icon}</span>`;
+        }
+
+        const lines: string[] = [];
+        const labels: Record<string, string> = { on_success: 'on success', on_failure: 'on failure', on_dead_letter: 'dead letter' };
+        for (const [ev, chs] of Object.entries(notifyChannels)) {
+            if (chs.length === 0) continue;
+            lines.push(`${ev === 'on_success' ? '✅' : ev === 'on_failure' ? '❌' : '💀'} ${labels[ev] || ev}: ${chs.join(', ')}`);
+        }
+        const tooltip = lines.join('\\n');
+
+        return `<span style="font-size:14px;cursor:default" onmouseenter="showTip(this,'${esc(tooltip)}')" onmouseleave="hideTip()">${iconsHtml}</span>`;
+    }
+
     let rows = '';
     for (const task of tasks) {
         const st = (task.status ?? '').toUpperCase();
@@ -632,6 +893,9 @@ app.get('/', async (c) => {
                     : '';
               })()
             : '';
+
+        const notifyHtml = buildNotifyIconCell(task, config);
+
         const usageHint = [toolsHint, skillsHint].filter(Boolean).join(' &middot; ');
         rows += `<tr>
           <td class="mu">#${task.id}</td>
@@ -641,6 +905,7 @@ app.get('/', async (c) => {
           <td class="sm ${task.status === 'running' ? '' : 'mu'}">${formatDuration(task.startedAt, task.finishedAt)}</td>
           <td class="mu sm">${(task.retryCount ?? 0) > 0 ? task.retryCount : '-'}</td>
           <td class="mu sm">${usageHint}</td>
+          <td>${notifyHtml}</td>
           <td>
             <button class="btn btn-sm" onclick="showDetail(${task.id})">Details</button>
             ${sessionBtn}
@@ -667,14 +932,15 @@ app.get('/', async (c) => {
       ${RangeBar(range, '/', statusFilter ? 'status=' + statusFilter : '')}
       ${filterBtns}
       <div class="panel"><table>
-        <thead><tr><th width="50">ID</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th width="60">Retries</th><th width="70">Tools</th><th>Actions</th></tr></thead>
+        <thead><tr><th width="50">ID</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th width="60">Retries</th><th width="70">Tools</th><th width="70">Notify</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
       ${paging}
       <script>
         (function(){
           var p=new URLSearchParams(location.search);
-          if(p.get('created')){
+          if(p.get('created')&&!window.__taskCreatedToast){
+            window.__taskCreatedToast=true;
             document.getElementById('toast').textContent='Task #'+p.get('created')+' created successfully';
             document.getElementById('toast').className='toast toast-ok';
             document.getElementById('toast').style.display='block';
@@ -749,6 +1015,7 @@ app.get('/', async (c) => {
               </div>
             </div>
           </div>
+          <div id="etc-notify-section"></div>
           <div id="et-browse-view" style="display:none;min-height:300px">
             <div class="ph" style="padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:4px">
               <span class="mu sm" id="et-browse-path">Home</span>
@@ -903,7 +1170,8 @@ app.get('/templates', async (c) => {
       <script>
         (function(){
           var p=new URLSearchParams(location.search);
-          if(p.get('created')){
+          if(p.get('created')&&!window.__templateCreatedToast){
+            window.__templateCreatedToast=true;
             document.getElementById('toast').textContent='Template #'+p.get('created')+' created successfully';
             document.getElementById('toast').className='toast toast-ok';
             document.getElementById('toast').style.display='block';
@@ -1002,6 +1270,7 @@ app.get('/templates', async (c) => {
             </div>
             <div class="field"><label>Status: <span id="etm-status" class="badge b-done">Enabled</span></label></div>
           </div>
+          <div id="etm-notify-section"></div>
           <div id="etm-browse-view" style="display:none;min-height:300px">
             <div class="ph" style="padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:4px">
               <span class="mu sm" id="etm-browse-path">Home</span>
@@ -1292,6 +1561,241 @@ app.get('/system', async (c) => {
     return c.html(renderLayout('System Status', 'system', body));
 });
 
+app.get('/notifications', async (c) => {
+    const config = loadConfig();
+    const nc = config.notifications;
+    const allChannelNames: ChannelName[] = ['telegram', 'discord', 'slack', 'email', 'webhook'];
+    const activeChannels = getActiveChannels(nc);
+
+    function channelCard(name: ChannelName, cfg: Record<string, unknown>) {
+        const label = CHANNEL_LABELS[name] || name;
+        const icon = CHANNEL_ICONS[name] || '';
+        const isActive = activeChannels.includes(name);
+
+        let statusDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6e7681;margin-right:6px"></span> Not configured';
+        if (isActive) {
+            statusDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3fb950;margin-right:6px"></span> Active';
+        }
+
+        let fields = '';
+        if (name === 'telegram') {
+            fields = `
+                <div class="field"><label>Bot Token</label><input type="text" id="tgb-token" placeholder="123456:ABC-DEF..." value="${esc(String(cfg.botToken || ''))}"></div>
+                <div class="field"><label>Chat ID</label><input type="text" id="tgb-chat" placeholder="-123456789" value="${esc(String(cfg.chatId || ''))}"></div>`;
+        } else if (name === 'discord') {
+            fields = `
+                <div class="field"><label>Webhook URL</label><input type="text" id="dsc-url" placeholder="https://discord.com/api/webhooks/..." value="${esc(String(cfg.webhookUrl || ''))}"></div>`;
+        } else if (name === 'slack') {
+            fields = `
+                <div class="field"><label>Webhook URL</label><input type="text" id="slk-url" placeholder="https://hooks.slack.com/services/..." value="${esc(String(cfg.webhookUrl || ''))}"></div>`;
+        } else if (name === 'email') {
+            fields = `
+                <div class="field-grid">
+                  <div class="field"><label>SMTP Host</label><input type="text" id="eml-host" placeholder="smtp.gmail.com" value="${esc(String(cfg.host || ''))}"></div>
+                  <div class="field"><label>Port</label><input type="number" id="eml-port" value="${cfg.port || 587}" style="width:100px"></div>
+                </div>
+                <div class="field-grid">
+                  <div class="field"><label>Username</label><input type="text" id="eml-user" placeholder="user@gmail.com" value="${esc(String(cfg.user || ''))}"></div>
+                  <div class="field"><label>Password</label><input type="password" id="eml-pass" placeholder="App password" value="${esc(String(cfg.pass || ''))}"></div>
+                </div>
+                <div class="field-grid">
+                  <div class="field"><label>From</label><input type="text" id="eml-from" placeholder="opencron@example.com" value="${esc(String(cfg.from || ''))}"></div>
+                  <div class="field"><label>To</label><input type="text" id="eml-to" placeholder="admin@example.com" value="${esc(String(cfg.to || ''))}"></div>
+                </div>`;
+        } else if (name === 'webhook') {
+            fields = `
+                <div class="field"><label>URL</label><input type="text" id="whk-url" placeholder="https://your-service.com/webhook" value="${esc(String(cfg.url || ''))}"></div>
+                <div class="field"><label>Headers (JSON)</label><input type="text" id="whk-headers" placeholder='{"X-API-Key": "..."}' value="${esc(cfg.headers ? JSON.stringify(cfg.headers) : '')}"></div>`;
+        }
+
+        const envVarHint = `<span class="mu sm" style="display:block;margin-top:4px">Use <code>$\{VARIABLE_NAME}</code> to read from environment variables. Secrets stay off disk.</span>`;
+
+        return `
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px">
+              ${icon} <strong>${label}</strong>
+              <span style="font-size:12px">${statusDot}</span>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="showSetupGuide('${name}')" title="Setup guide">?</button>
+              <button class="btn btn-sm btn-primary" onclick="testChannel('${name}')">Test</button>
+            </div>
+          </div>
+          ${fields}
+          ${envVarHint}
+          <div id="test-${name}-result" style="margin-top:8px;font-size:12px"></div>
+        </div>`;
+    }
+
+    const defaultsOnSuccess = nc.defaults.on_success;
+    const defaultsOnFailure = nc.defaults.on_failure;
+    const defaultsOnDeadLetter = nc.defaults.on_dead_letter;
+
+    function channelCheckboxes(prefix: string, selected: string[]) {
+        return allChannelNames.map(ch =>
+            `<label style="margin-right:12px;font-size:13px;display:inline-flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="checkbox" name="${prefix}-${ch}" ${selected.includes(ch) ? 'checked' : ''} style="width:auto"> ${CHANNEL_LABELS[ch]}
+            </label>`
+        ).join('');
+    }
+
+    let channelCards = '';
+    for (const name of allChannelNames) {
+        const cfg = nc.channels[name] || {};
+        channelCards += channelCard(name, cfg);
+    }
+
+    const setupModals = allChannelNames.map(name => {
+        const guide = CHANNEL_SETUP_GUIDES[name] || '';
+        return `<dialog id="setup-${name}"><div class="dh"><h3 style="margin:0">Setup Guide: ${CHANNEL_LABELS[name]}</h3><button class="cb" onclick="document.getElementById('setup-${name}').close()">&times;</button></div><div class="db" style="font-size:13px;line-height:1.7">${guide}</div><div class="modal-footer"><button class="btn" onclick="document.getElementById('setup-${name}').close()">Close</button></div></dialog>`;
+    }).join('');
+
+    const body = `
+      <div class="card" style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <h3 style="margin:0;font-size:14px">Notifications</h3>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="checkbox" id="notify-enabled" ${nc.enabled ? 'checked' : ''} onchange="toggleNotificationsEnabled()" style="width:auto">
+              <span id="notify-enabled-label">${nc.enabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </div>
+        </div>
+        <p class="mu sm" style="margin:0 0 12px">Changes require a Gateway restart to take effect on running tasks. The Test button works immediately.</p>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0;font-size:14px">Global Notification Defaults</h3>
+          <button class="btn btn-sm btn-primary" onclick="saveNotificationDefaults()">Save Defaults</button>
+        </div>
+        <p class="mu sm" style="margin:0 0 12px">These channels fire for all tasks unless a task has custom notification settings.</p>
+        <table>
+          <thead><tr><th width="160">Event</th><th>Channels</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge b-done">&#x2705; Success</span></td>
+              <td>${channelCheckboxes('on_success', defaultsOnSuccess)}</td>
+            </tr>
+            <tr>
+              <td><span class="badge b-failed">&#x274C; Failure</span></td>
+              <td>${channelCheckboxes('on_failure', defaultsOnFailure)}</td>
+            </tr>
+            <tr>
+              <td><span class="badge b-dead_letter">&#x1F480; Dead Letter</span></td>
+              <td>${channelCheckboxes('on_dead_letter', defaultsOnDeadLetter)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0;font-size:14px">Channel Configuration</h3>
+          <button class="btn btn-sm btn-primary" onclick="saveChannelConfigs()">Save Channels</button>
+        </div>
+        ${channelCards}
+      </div>
+
+      ${setupModals}
+
+      <script>
+        async function toggleNotificationsEnabled() {
+          var cb = document.getElementById('notify-enabled');
+          var label = document.getElementById('notify-enabled-label');
+          var enabled = cb.checked;
+          label.textContent = enabled ? 'Enabled' : 'Disabled';
+          var r = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notifications: { enabled: enabled } })
+          });
+          var d = await r.json();
+          if (!d.success) { cb.checked = !enabled; label.textContent = !enabled ? 'Enabled' : 'Disabled'; }
+        }
+
+        function showSetupGuide(name) {
+          document.getElementById('setup-' + name).showModal();
+        }
+
+        async function saveNotificationDefaults() {
+          const config = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              notifications: {
+                defaults: {
+                  on_success: getCheckedChannels('on_success'),
+                  on_failure: getCheckedChannels('on_failure'),
+                  on_dead_letter: getCheckedChannels('on_dead_letter'),
+                }
+              }
+            })
+          });
+          const d = await config.json();
+          showToast(d.success ? 'Defaults saved' : 'Save failed: ' + d.error, d.success);
+        }
+
+        function getCheckedChannels(prefix) {
+          const names = ['telegram','discord','slack','email','webhook'];
+          return names.filter(function(n) {
+            var el = document.querySelector('input[name="' + prefix + '-' + n + '"]');
+            return el && el.checked;
+          });
+        }
+
+        async function saveChannelConfigs() {
+          var channels = {};
+          channels.telegram = { botToken: document.getElementById('tgb-token').value, chatId: document.getElementById('tgb-chat').value };
+          channels.discord = { webhookUrl: document.getElementById('dsc-url').value };
+          channels.slack = { webhookUrl: document.getElementById('slk-url').value };
+          channels.email = {
+            host: document.getElementById('eml-host').value,
+            port: parseInt(document.getElementById('eml-port').value) || 587,
+            secure: false,
+            user: document.getElementById('eml-user').value,
+            pass: document.getElementById('eml-pass').value,
+            from: document.getElementById('eml-from').value,
+            to: document.getElementById('eml-to').value,
+          };
+          var headersRaw = document.getElementById('whk-headers').value.trim();
+          var headers = {};
+          if (headersRaw) {
+            try { headers = JSON.parse(headersRaw); } catch(e) { alert('Invalid JSON in headers field'); return; }
+          }
+          channels.webhook = { url: document.getElementById('whk-url').value, headers: headers };
+          const config = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notifications: { channels: channels } })
+          });
+          const d = await config.json();
+          showToast(d.success ? 'Channel configs saved' : 'Save failed: ' + d.error, d.success);
+        }
+
+        async function testChannel(name) {
+          var resultEl = document.getElementById('test-' + name + '-result');
+          resultEl.innerHTML = '<span style="color:var(--yellow)">Testing...</span>';
+          try {
+            var r = await fetch('/api/notifications/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: name }) });
+            var d = await r.json();
+            if (d.success) {
+              resultEl.innerHTML = '<span style="color:var(--green)">Test sent successfully!</span>';
+            } else {
+              resultEl.innerHTML = '<span style="color:var(--red)">Test failed: ' + (d.error || 'unknown error') + '</span>';
+            }
+          } catch(e) {
+            resultEl.innerHTML = '<span style="color:var(--red)">Test failed: ' + e.message + '</span>';
+          }
+        }
+
+        function showToast(msg, ok) {
+          var t = document.getElementById('toast');
+          t.textContent = msg;
+          t.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
+          t.style.display = 'block';
+          setTimeout(function() { t.style.display = 'none'; }, 3000);
+        }
+      </script>`;
+
+    return c.html(renderLayout('Notifications', 'notifications', body));
+});
+
 app.get('/api/tasks/:id', async (c) => {
     const id = Number(c.req.param('id'));
     const task = await TaskService.getById(id);
@@ -1428,6 +1932,7 @@ app.put('/api/templates/:id', async (c) => {
             cronExpr: body.cronExpr ? String(body.cronExpr) : undefined,
             intervalMs: body.intervalMs !== undefined ? Number(body.intervalMs) : undefined,
             runAt: body.runAt !== undefined ? Number(body.runAt) : undefined,
+            notifyOn: body.notifyOn ? JSON.stringify(body.notifyOn) : undefined,
         });
         if (!result) return c.json({ success: false, error: 'not found' }, 404);
         return c.json({ success: true });
@@ -1443,10 +1948,12 @@ app.put('/api/config', async (c) => {
         const curW = (current.worker ?? {}) as Record<string, unknown>;
         const curS = (current.scheduler ?? {}) as Record<string, unknown>;
         const curD = (current.watchdog ?? {}) as Record<string, unknown>;
+        const curN = (current.notifications ?? {}) as Record<string, unknown>;
         const bW = (body.worker ?? {}) as Record<string, unknown>;
         const bS = (body.scheduler ?? {}) as Record<string, unknown>;
         const bD = (body.watchdog ?? {}) as Record<string, unknown>;
-        const merged = { ...current, ...body, worker: { ...curW, ...bW }, scheduler: { ...curS, ...bS }, watchdog: { ...curD, ...bD } };
+        const bN = (body.notifications ?? {}) as Record<string, unknown>;
+        const merged = { ...current, ...body, worker: { ...curW, ...bW }, scheduler: { ...curS, ...bS }, watchdog: { ...curD, ...bD }, notifications: { ...curN, ...bN } };
         writeConfig(merged);
         return c.json({ success: true });
     } catch (err) {
@@ -1495,6 +2002,33 @@ app.get('/api/fs/validate', (c) => {
     return c.json(result);
 });
 
+app.get('/api/notifications/active-channels', (c) => {
+    const config = loadConfig();
+    const active = getActiveChannels(config.notifications);
+    return c.json({ channels: active });
+});
+
+app.get('/api/notifications/health', async (c) => {
+    const config = loadConfig();
+    const results = await healthCheckAll(config.notifications);
+    return c.json(results);
+});
+
+app.post('/api/notifications/test', async (c) => {
+    try {
+        const body = await c.req.json();
+        const channel = body.channel as ChannelName;
+        if (!channel) {
+            return c.json({ success: false, error: 'channel is required' }, 400);
+        }
+        const config = loadConfig();
+        const result = await sendTestNotification(channel, config.notifications);
+        return c.json({ success: result.ok, error: result.error, channel });
+    } catch (err) {
+        return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+});
+
 app.post('/api/tasks', async (c) => {
     try {
         const body = await c.req.json();
@@ -1517,6 +2051,7 @@ app.post('/api/tasks', async (c) => {
             importance: Number(body.importance ?? 3),
             urgency: Number(body.urgency ?? 3),
             maxRetries: Number(body.maxRetries ?? 3),
+            notifyOn: body.notifyOn ? JSON.stringify(body.notifyOn) : undefined,
         });
         return c.json({ success: true, taskId: task.id });
     } catch (err) {
@@ -1550,6 +2085,7 @@ app.post('/api/templates', async (c) => {
             cronExpr: body.cronExpr ? String(body.cronExpr) : undefined,
             intervalMs: body.intervalMs ? Number(body.intervalMs) : undefined,
             runAt: body.runAt ? Number(body.runAt) : undefined,
+            notifyOn: body.notifyOn ? JSON.stringify(body.notifyOn) : undefined,
         });
         return c.json({ success: true, templateId: template.id });
     } catch (err) {
@@ -1659,6 +2195,25 @@ app.get('/new', (c) => {
             </div>
           </div>
 
+          <div class="card" style="margin-bottom:20px;padding:14px 16px" id="notify-section">
+            <h4 style="margin:0 0 10px;font-size:13px">Notifications</h4>
+            <div class="field" style="margin-bottom:8px">
+              <label>
+                <input type="radio" name="notify_mode" value="global" checked onchange="toggleNotifyMode()" style="width:auto;margin-right:6px">
+                Use global defaults
+              </label>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>
+                <input type="radio" name="notify_mode" value="custom" onchange="toggleNotifyMode()" style="width:auto;margin-right:6px">
+                Custom for this task
+              </label>
+            </div>
+            <div id="notify-custom-section" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+              <div id="notify-custom-table"></div>
+            </div>
+          </div>
+
           <div class="field-grid">
             <div class="field">
               <label>Category <span class="tip" onmouseenter="showTip(this,'A label to organize tasks. Purely for filtering and grouping — does not affect execution.')" onmouseleave="hideTip()">i</span></label>
@@ -1724,6 +2279,7 @@ app.get('/new', (c) => {
       <script>
         initStars('stars-im');
         initStars('stars-ur');
+        loadActiveChannels();
 
         var cwdTimeout;
 

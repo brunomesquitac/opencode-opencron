@@ -56,7 +56,7 @@ program
 
 program
     .command('next')
-    .description('获取下一个待执行的任务')
+    .description('Get the next pending task')
     .action(async () => withDb(async () => {
         const task = await TaskService.next({ cwd: process.cwd() });
         if (task) {

@@ -3,9 +3,9 @@ import { tasks } from '@core/db/schema';
 import { inArray } from 'drizzle-orm';
 
 async function main() {
-    console.log('🔄 正在重置任务状态 (Running/Failed -> Pending)...');
+    console.log('🔄 Resetting task status (Running/Failed -> Pending)...');
 
-    // SQLite 驱动下，run() 返回结果包含 changes
+    // SQLite driver: run() returns result with changes count
     const result = await db.update(tasks)
         .set({
             status: 'pending',
@@ -15,7 +15,7 @@ async function main() {
         .where(inArray(tasks.status, ['running', 'failed']))
         .run();
 
-    console.log(`✅ 操作完成。`);
+    console.log(`✅ Operation complete.`);
 
     closeDb();
 }

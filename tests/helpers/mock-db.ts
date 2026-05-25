@@ -40,7 +40,8 @@ export function setupTestDb() {
             retry_after INTEGER,
             timeout_ms INTEGER,
             template_id INTEGER,
-            scheduled_at INTEGER
+            scheduled_at INTEGER,
+            notify_on TEXT
         );
     `);
 
@@ -59,7 +60,13 @@ export function setupTestDb() {
             locked_by TEXT,
             heartbeat_at INTEGER,
             worker_pid INTEGER,
-            child_pid INTEGER
+            child_pid INTEGER,
+            tools_used TEXT,
+            skills_used TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            total_tokens INTEGER,
+            cost_usd REAL
         );
     `);
 
@@ -85,7 +92,8 @@ export function setupTestDb() {
             next_run_at INTEGER,
             enabled INTEGER DEFAULT 1,
             created_at INTEGER DEFAULT 0,
-            updated_at INTEGER DEFAULT 0
+            updated_at INTEGER DEFAULT 0,
+            notify_on TEXT
         );
     `);
 

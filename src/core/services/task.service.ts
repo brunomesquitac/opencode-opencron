@@ -1,5 +1,5 @@
-// 任务服务层
-// 封装所有任务相关的 CRUD 操作
+// task service layer
+// wraps all task-related CRUD operations
 
 import { db, schema } from '@core/db';
 import { eq, and, desc, asc, sql, isNull, or } from 'drizzle-orm';

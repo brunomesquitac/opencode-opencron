@@ -7,8 +7,8 @@ import { closeDb } from '@core/db';
 import { TaskService } from '@core/services/task.service';
 import { TaskRunService } from '@core/services/task-run.service';
 
-// gateway_lock.heartbeat_at / acquired_at 单位：毫秒（Date.now()）
-// 超过此阈值未心跳则视为锁持有者已死亡
+// gateway_lock.heartbeat_at / acquired_at in milliseconds (Date.now())
+// if no heartbeat beyond this threshold, the lock holder is considered dead
 const STALE_THRESHOLD_MS = 30_000;
 
 function acquireLock(): boolean {

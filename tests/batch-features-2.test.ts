@@ -2,32 +2,32 @@ import { describe, test, expect, beforeEach } from 'bun:test';
 import { setupTestDb } from './helpers/mock-db';
 import { TaskService } from '../src/core/services/task.service';
 
-describe('批次功能测试 #2', () => {
+describe('batch features test #2', () => {
     beforeEach(() => {
         setupTestDb();
     });
 
-    describe('next() 排除多批次时 null batchId 任务不受影响', () => {
-        test('排除多个批次时，无 batchId 的任务仍可被获取', async () => {
+    describe('next() excludes multiple batches, null batchId tasks unaffected', () => {
+        test('tasks without batchId can still be fetched when multiple batches excluded', async () => {
             const independentTask = await TaskService.add({
-                name: '独立任务',
+                name: 'Independent Task',
                 agent: 'a',
                 prompt: 'p',
             });
             await TaskService.add({
-                name: '批次A',
+                name: 'Batch A',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-a',
             });
             await TaskService.add({
-                name: '批次B',
+                name: 'Batch B',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-b',
             });
             await TaskService.add({
-                name: '批次C',
+                name: 'Batch C',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-c',
@@ -41,10 +41,10 @@ describe('批次功能测试 #2', () => {
             expect(next!.batchId).toBeNull();
         });
 
-        test('排除所有批次后，只剩无 batchId 的任务可选', async () => {
-            const t1 = await TaskService.add({ name: '独立1', agent: 'a', prompt: 'p' });
-            const t2 = await TaskService.add({ name: '独立2', agent: 'a', prompt: 'p' });
-            await TaskService.add({ name: '批次A', agent: 'a', prompt: 'p', batchId: 'batch-a' });
+        test('only tasks without batchId remain after excluding all batches', async () => {
+            const t1 = await TaskService.add({ name: 'Independent 1', agent: 'a', prompt: 'p' });
+            const t2 = await TaskService.add({ name: 'Independent 2', agent: 'a', prompt: 'p' });
+            await TaskService.add({ name: 'Batch A', agent: 'a', prompt: 'p', batchId: 'batch-a' });
 
             const next1 = await TaskService.next({ excludedBatchIds: ['batch-a'] });
             expect(next1!.id).toBe(t1.id);
@@ -56,9 +56,9 @@ describe('批次功能测试 #2', () => {
             expect(next2!.id).toBe(t2.id);
         });
 
-        test('excludedBatchIds 为空数组时不产生过滤效果', async () => {
+        test('excludedBatchIds empty array produces no filter effect', async () => {
             const batchTask = await TaskService.add({
-                name: '批次任务',
+                name: 'Batch Task',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-x',
@@ -66,7 +66,7 @@ describe('批次功能测试 #2', () => {
                 urgency: 5,
             });
             await TaskService.add({
-                name: '独立任务',
+                name: 'Independent Task',
                 agent: 'a',
                 prompt: 'p',
                 importance: 1,
@@ -79,17 +79,17 @@ describe('批次功能测试 #2', () => {
         });
     });
 
-    describe('retryBatch 边界场景', () => {
-        test('retryBatch 同时重试 failed 和 dead_letter 状态', async () => {
+    describe('retryBatch edge cases', () => {
+        test('retryBatch retries both failed and dead_letter status', async () => {
             const t1 = await TaskService.add({
-                name: '任务一',
+                name: 'Task 1',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-retry',
                 maxRetries: 3,
             });
             const t2 = await TaskService.add({
-                name: '任务二',
+                name: 'Task 2',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-retry',
@@ -97,11 +97,11 @@ describe('批次功能测试 #2', () => {
             });
 
             await TaskService.start(t1.id);
-            await TaskService.fail(t1.id, '首次失败');
+            await TaskService.fail(t1.id, 'first failure');
             expect((await TaskService.getById(t1.id))!.status).toBe('failed');
 
             await TaskService.start(t2.id);
-            await TaskService.fail(t2.id, '达到上限');
+            await TaskService.fail(t2.id, 'reached limit');
             expect((await TaskService.getById(t2.id))!.status).toBe('dead_letter');
 
             const count = await TaskService.retryBatch('batch-retry');
@@ -113,27 +113,27 @@ describe('批次功能测试 #2', () => {
             expect(r2!.status).toBe('pending');
         });
 
-        test('retryBatch 不影响 pending/running/done/cancelled 状态的任务', async () => {
+        test('retryBatch does not affect pending/running/done/cancelled tasks', async () => {
             const pending = await TaskService.add({
-                name: '待执行',
+                name: 'Pending',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-mixed',
             });
             const running = await TaskService.add({
-                name: '执行中',
+                name: 'Running',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-mixed',
             });
             const done = await TaskService.add({
-                name: '已完成',
+                name: 'Done',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-mixed',
             });
             const cancelled = await TaskService.add({
-                name: '已取消',
+                name: 'Cancelled',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-mixed',
@@ -153,9 +153,9 @@ describe('批次功能测试 #2', () => {
             expect((await TaskService.getById(cancelled.id))!.status).toBe('cancelled');
         });
 
-        test('retryBatch 带 cwd 过滤', async () => {
+        test('retryBatch with cwd filter', async () => {
             const t1 = await TaskService.add({
-                name: '项目A任务',
+                name: 'Project A Task',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-cwd',
@@ -163,7 +163,7 @@ describe('批次功能测试 #2', () => {
                 maxRetries: 3,
             });
             const t2 = await TaskService.add({
-                name: '项目B任务',
+                name: 'Project B Task',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-cwd',
@@ -172,9 +172,9 @@ describe('批次功能测试 #2', () => {
             });
 
             await TaskService.start(t1.id);
-            await TaskService.fail(t1.id, '失败');
+            await TaskService.fail(t1.id, 'failed');
             await TaskService.start(t2.id);
-            await TaskService.fail(t2.id, '失败');
+            await TaskService.fail(t2.id, 'failed');
 
             const countA = await TaskService.retryBatch('batch-cwd', { cwd: '/project-a' });
             expect(countA).toBe(1);
@@ -185,9 +185,9 @@ describe('批次功能测试 #2', () => {
             expect(r2!.status).toBe('failed');
         });
 
-        test('retryBatch 重试后 retryCount 保持不变（手动重试不重置计数器）', async () => {
+        test('retryBatch preserves retryCount (manual retry does not reset counter)', async () => {
             const task = await TaskService.add({
-                name: '重试计数验证',
+                name: 'Retry Count Verify',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-count',
@@ -195,11 +195,11 @@ describe('批次功能测试 #2', () => {
             });
 
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败一次');
+            await TaskService.fail(task.id, 'failed once');
             expect((await TaskService.getById(task.id))!.retryCount).toBe(1);
 
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败两次');
+            await TaskService.fail(task.id, 'failed twice');
             expect((await TaskService.getById(task.id))!.retryCount).toBe(2);
 
             await TaskService.retryBatch('batch-count');
@@ -210,11 +210,11 @@ describe('批次功能测试 #2', () => {
         });
     });
 
-    describe('stats 按 batchId 筛选', () => {
-        test('stats 仅返回指定批次的数据', async () => {
+    describe('stats filter by batchId', () => {
+        test('stats only returns data for specified batch', async () => {
             for (let i = 0; i < 3; i++) {
                 const t = await TaskService.add({
-                    name: `批次A任务${i}`,
+                    name: `Batch A Task ${i}`,
                     agent: 'a',
                     prompt: 'p',
                     batchId: 'stats-batch-a',
@@ -224,14 +224,14 @@ describe('批次功能测试 #2', () => {
             }
 
             const failed = await TaskService.add({
-                name: '批次B失败任务',
+                name: 'Batch B Failed Task',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'stats-batch-b',
                 maxRetries: 3,
             });
             await TaskService.start(failed.id);
-            await TaskService.fail(failed.id, '失败');
+            await TaskService.fail(failed.id, 'failed');
 
             const statsA = await TaskService.stats({ batchId: 'stats-batch-a' });
             expect(statsA.total).toBe(3);
@@ -244,21 +244,21 @@ describe('批次功能测试 #2', () => {
             expect(statsB.failed).toBe(1);
         });
 
-        test('stats 对不存在的批次返回全零', async () => {
+        test('stats returns all zeros for non-existent batch', async () => {
             const stats = await TaskService.stats({ batchId: 'nonexistent' });
             expect(stats.total).toBe(0);
         });
 
-        test('stats 同时按 batchId 和 cwd 过滤', async () => {
+        test('stats filter by both batchId and cwd', async () => {
             const t1 = await TaskService.add({
-                name: '项目A批次X',
+                name: 'Project A Batch X',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-x',
                 cwd: '/project-a',
             });
             const t2 = await TaskService.add({
-                name: '项目B批次X',
+                name: 'Project B Batch X',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-x',
@@ -274,15 +274,15 @@ describe('批次功能测试 #2', () => {
         });
     });
 
-    describe('批次内含依赖任务', () => {
-        test('批次内依赖任务的前置任务不在该批次时，依赖完成后仍可被 next 取到', async () => {
+    describe('batch tasks with dependencies', () => {
+        test('dependent task in batch can be fetched after dependency completes when dependency not in batch', async () => {
             const dep = await TaskService.add({
-                name: '前置任务（无批次）',
+                name: 'Prerequisite (no batch)',
                 agent: 'a',
                 prompt: 'p',
             });
             const dependent = await TaskService.add({
-                name: '依赖任务（有批次）',
+                name: 'Dependent (has batch)',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: dep.id,
@@ -302,14 +302,14 @@ describe('批次功能测试 #2', () => {
             expect(nextAfter!.batchId).toBe('batch-dep');
         });
 
-        test('批次内依赖任务在排除该批次时不可被获取', async () => {
+        test('dependent task in batch cannot be fetched when batch excluded', async () => {
             const dep = await TaskService.add({
-                name: '前置',
+                name: 'Prerequisite',
                 agent: 'a',
                 prompt: 'p',
             });
             await TaskService.add({
-                name: '依赖',
+                name: 'Dependent',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: dep.id,
@@ -323,22 +323,22 @@ describe('批次功能测试 #2', () => {
             expect(next).toBeNull();
         });
 
-        test('批次内多级依赖链（A→B→C），全部在同一批次', async () => {
+        test('multi-level dependency chain (A→B→C) all in same batch', async () => {
             const a = await TaskService.add({
-                name: '步骤A',
+                name: 'Step A',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'chain',
             });
             const b = await TaskService.add({
-                name: '步骤B',
+                name: 'Step B',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: a.id,
                 batchId: 'chain',
             });
             const c = await TaskService.add({
-                name: '步骤C',
+                name: 'Step C',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: b.id,
@@ -362,10 +362,10 @@ describe('批次功能测试 #2', () => {
         });
     });
 
-    describe('批次与优先级交互', () => {
-        test('不同批次但不同优先级，next 返回优先级最高的', async () => {
+    describe('batch and priority interaction', () => {
+        test('different batches with different priorities, next returns highest priority', async () => {
             const low = await TaskService.add({
-                name: '批次A低优先级',
+                name: 'Batch A Low Priority',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-prio-a',
@@ -373,7 +373,7 @@ describe('批次功能测试 #2', () => {
                 urgency: 1,
             });
             const high = await TaskService.add({
-                name: '批次B高优先级',
+                name: 'Batch B High Priority',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-prio-b',
@@ -386,9 +386,9 @@ describe('批次功能测试 #2', () => {
             expect(next!.batchId).toBe('batch-prio-b');
         });
 
-        test('高优先级批次被排除时，返回次高优先级的其他批次任务', async () => {
+        test('when high priority batch excluded, return next highest priority from other batches', async () => {
             const low = await TaskService.add({
-                name: '批次A',
+                name: 'Batch A',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-ex-high',
@@ -396,7 +396,7 @@ describe('批次功能测试 #2', () => {
                 urgency: 5,
             });
             const high = await TaskService.add({
-                name: '批次B',
+                name: 'Batch B',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-ex-low',
@@ -409,9 +409,9 @@ describe('批次功能测试 #2', () => {
             expect(next!.batchId).toBe('batch-ex-low');
         });
 
-        test('同批次内多个 pending 任务按优先级排序', async () => {
+        test('multiple pending tasks in same batch ordered by priority', async () => {
             const low = await TaskService.add({
-                name: '低',
+                name: 'Low',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'same-batch',
@@ -419,7 +419,7 @@ describe('批次功能测试 #2', () => {
                 urgency: 1,
             });
             const high = await TaskService.add({
-                name: '高',
+                name: 'High',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'same-batch',
@@ -432,10 +432,10 @@ describe('批次功能测试 #2', () => {
         });
     });
 
-    describe('批次任务的生命周期状态转换', () => {
-        test('批次任务完成生命周期：pending → running → done', async () => {
+    describe('batch task lifecycle state transitions', () => {
+        test('batch task lifecycle: pending → running → done', async () => {
             const task = await TaskService.add({
-                name: '批次生命周期',
+                name: 'Batch Lifecycle',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'lifecycle-batch',
@@ -447,15 +447,15 @@ describe('批次功能测试 #2', () => {
             expect(started!.status).toBe('running');
             expect(started!.batchId).toBe('lifecycle-batch');
 
-            const finished = await TaskService.done(task.id, '完成');
+            const finished = await TaskService.done(task.id, 'complete');
             expect(finished!.status).toBe('done');
             expect(finished!.batchId).toBe('lifecycle-batch');
-            expect(finished!.resultLog).toBe('完成');
+            expect(finished!.resultLog).toBe('complete');
         });
 
-        test('批次任务失败生命周期：pending → running → failed → retryBatch → pending → running → done', async () => {
+        test('batch task failure lifecycle: pending → running → failed → retryBatch → pending → running → done', async () => {
             const task = await TaskService.add({
-                name: '失败恢复测试',
+                name: 'Failure Recovery Test',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'lifecycle-fail',
@@ -463,7 +463,7 @@ describe('批次功能测试 #2', () => {
             });
 
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '第一次失败');
+            await TaskService.fail(task.id, 'first failure');
             expect((await TaskService.getById(task.id))!.status).toBe('failed');
             expect((await TaskService.getById(task.id))!.retryCount).toBe(1);
 
@@ -471,13 +471,13 @@ describe('批次功能测试 #2', () => {
             expect((await TaskService.getById(task.id))!.status).toBe('pending');
 
             await TaskService.start(task.id);
-            await TaskService.done(task.id, '第二次成功');
+            await TaskService.done(task.id, 'second success');
             expect((await TaskService.getById(task.id))!.status).toBe('done');
         });
 
-        test('批次任务被取消后不能被 retryBatch 恢复', async () => {
+        test('cancelled batch task cannot be restored by retryBatch', async () => {
             const task = await TaskService.add({
-                name: '已取消批次任务',
+                name: 'Cancelled Batch Task',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'cancelled-batch',
@@ -491,9 +491,9 @@ describe('批次功能测试 #2', () => {
             expect((await TaskService.getById(task.id))!.status).toBe('cancelled');
         });
 
-        test('批次任务达到 dead_letter 后被 retryBatch 恢复', async () => {
+        test('dead_letter batch task can be restored by retryBatch', async () => {
             const task = await TaskService.add({
-                name: '死信恢复',
+                name: 'Dead Letter Recovery',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'dead-batch',
@@ -501,31 +501,31 @@ describe('批次功能测试 #2', () => {
             });
 
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '立即死信');
+            await TaskService.fail(task.id, 'immediate dead letter');
             expect((await TaskService.getById(task.id))!.status).toBe('dead_letter');
 
             await TaskService.retryBatch('dead-batch');
             expect((await TaskService.getById(task.id))!.status).toBe('pending');
 
             await TaskService.start(task.id);
-            await TaskService.done(task.id, '恢复成功');
+            await TaskService.done(task.id, 'recovery successful');
             expect((await TaskService.getById(task.id))!.status).toBe('done');
         });
     });
 
-    describe('deleteOlderThan 与批次', () => {
-        test('deleteOlderThan 删除过期完成的批次任务后，批次统计归零', async () => {
+    describe('deleteOlderThan with batches', () => {
+        test('deleteOlderThan removes expired completed batch tasks, batch stats reset to zero', async () => {
             const { getDb } = await import('../src/core/db');
             const sqliteDb = getDb();
 
             const t1 = await TaskService.add({
-                name: '批次任务A',
+                name: 'Batch Task A',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'old-batch',
             });
             const t2 = await TaskService.add({
-                name: '批次任务B',
+                name: 'Batch Task B',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'old-batch',

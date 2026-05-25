@@ -8,16 +8,16 @@ describe('TaskService', () => {
     });
 
     describe('add', () => {
-        test('创建基本任务', async () => {
+        test('create basic task', async () => {
             const task = await TaskService.add({
-                name: '翻译文档',
+                name: 'Translate Document',
                 agent: 'translator',
-                prompt: '翻译 README.md',
+                prompt: 'Translate README.md',
             });
             expect(task.id).toBeGreaterThan(0);
-            expect(task.name).toBe('翻译文档');
+            expect(task.name).toBe('Translate Document');
             expect(task.agent).toBe('translator');
-            expect(task.prompt).toBe('翻译 README.md');
+            expect(task.prompt).toBe('Translate README.md');
             expect(task.status).toBe('pending');
             expect(task.importance).toBe(3);
             expect(task.urgency).toBe(3);
@@ -25,11 +25,11 @@ describe('TaskService', () => {
             expect(task.maxRetries).toBe(3);
         });
 
-        test('创建带完整参数的任务', async () => {
+        test('create task with all parameters', async () => {
             const task = await TaskService.add({
-                name: '紧急审查',
+                name: 'Urgent Review',
                 agent: 'reviewer',
-                prompt: '审查 PR #42',
+                prompt: 'Review PR #42',
                 model: 'gpt-4',
                 category: 'review',
                 importance: 5,
@@ -50,34 +50,34 @@ describe('TaskService', () => {
     });
 
     describe('getById', () => {
-        test('根据 ID 获取存在的任务', async () => {
+        test('get existing task by ID', async () => {
             const created = await TaskService.add({
-                name: '查询测试',
+                name: 'Query Test',
                 agent: 'agent-a',
-                prompt: '查询',
+                prompt: 'query',
             });
             const found = await TaskService.getById(created.id);
             expect(found).not.toBeNull();
             expect(found!.id).toBe(created.id);
-            expect(found!.name).toBe('查询测试');
+            expect(found!.name).toBe('Query Test');
         });
 
-        test('获取不存在的任务返回 null', async () => {
+        test('get non-existent task returns null', async () => {
             const found = await TaskService.getById(99999);
             expect(found).toBeNull();
         });
 
-        test('按 cwd 过滤', async () => {
+        test('filter by cwd', async () => {
             const t1 = await TaskService.add({
-                name: '项目A任务',
+                name: 'Project A Task',
                 agent: 'agent-a',
-                prompt: '测试',
+                prompt: 'test',
                 cwd: '/project-a',
             });
             await TaskService.add({
-                name: '项目B任务',
+                name: 'Project B Task',
                 agent: 'agent-b',
-                prompt: '测试',
+                prompt: 'test',
                 cwd: '/project-b',
             });
 
@@ -90,46 +90,46 @@ describe('TaskService', () => {
     });
 
     describe('next', () => {
-        test('返回最高优先级的 pending 任务', async () => {
+        test('return highest priority pending task', async () => {
             await TaskService.add({
-                name: '低优先级',
+                name: 'Low Priority',
                 agent: 'agent-a',
-                prompt: '低',
+                prompt: 'low',
                 importance: 1,
                 urgency: 1,
             });
             await TaskService.add({
-                name: '高优先级',
+                name: 'High Priority',
                 agent: 'agent-a',
-                prompt: '高',
+                prompt: 'high',
                 importance: 5,
                 urgency: 5,
             });
             await TaskService.add({
-                name: '中优先级',
+                name: 'Medium Priority',
                 agent: 'agent-a',
-                prompt: '中',
+                prompt: 'medium',
                 importance: 3,
                 urgency: 3,
             });
 
             const next = await TaskService.next();
             expect(next).not.toBeNull();
-            expect(next!.name).toBe('高优先级');
+            expect(next!.name).toBe('High Priority');
         });
 
-        test('同优先级按创建时间排序（FIFO）', async () => {
+        test('same priority ordered by creation time (FIFO)', async () => {
             const first = await TaskService.add({
-                name: '第一个',
+                name: 'First',
                 agent: 'agent-a',
-                prompt: '一',
+                prompt: 'one',
                 importance: 3,
                 urgency: 3,
             });
             await TaskService.add({
-                name: '第二个',
+                name: 'Second',
                 agent: 'agent-a',
-                prompt: '二',
+                prompt: 'two',
                 importance: 3,
                 urgency: 3,
             });
@@ -138,12 +138,12 @@ describe('TaskService', () => {
             expect(next!.id).toBe(first.id);
         });
 
-        test('没有 pending 任务时返回 null', async () => {
+        test('return null when no pending tasks', async () => {
             const next = await TaskService.next();
             expect(next).toBeNull();
         });
 
-        test('跳过 running/done/cancelled 状态的任务', async () => {
+        test('skip running/done/cancelled tasks', async () => {
             const t1 = await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             await TaskService.start(t1.id);
 
@@ -158,15 +158,15 @@ describe('TaskService', () => {
             expect(next).toBeNull();
         });
 
-        test('按 cwd 过滤', async () => {
+        test('filter by cwd', async () => {
             await TaskService.add({
-                name: '项目A',
+                name: 'Project A',
                 agent: 'a',
                 prompt: 'p',
                 cwd: '/project-a',
             });
             const t2 = await TaskService.add({
-                name: '项目B',
+                name: 'Project B',
                 agent: 'a',
                 prompt: 'p',
                 cwd: '/project-b',
@@ -177,15 +177,15 @@ describe('TaskService', () => {
             expect(next!.id).toBe(t2.id);
         });
 
-        test('排除指定 batchId', async () => {
+        test('exclude specific batchId', async () => {
             await TaskService.add({
-                name: '批次任务',
+                name: 'Batch Task',
                 agent: 'a',
                 prompt: 'p',
                 batchId: 'batch-1',
             });
             const t2 = await TaskService.add({
-                name: '独立任务',
+                name: 'Independent Task',
                 agent: 'a',
                 prompt: 'p',
             });
@@ -195,41 +195,41 @@ describe('TaskService', () => {
             expect(next!.id).toBe(t2.id);
         });
 
-        test('retryAfter 未到期时不返回 failed 任务', async () => {
+        test('do not return failed task when retryAfter has not expired', async () => {
             const task = await TaskService.add({
-                name: '延迟重试任务',
+                name: 'Delayed Retry Task',
                 agent: 'a',
                 prompt: 'p',
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败', {}, { retryAfterMs: Date.now() + 3600000 });
+            await TaskService.fail(task.id, 'failed', {}, { retryAfterMs: Date.now() + 3600000 });
 
             const next = await TaskService.next();
             expect(next).toBeNull();
         });
 
-        test('retryAfter 已到期时返回 failed 任务', async () => {
+        test('return failed task when retryAfter has expired', async () => {
             const task = await TaskService.add({
-                name: '到期重试任务',
+                name: 'Expired Retry Task',
                 agent: 'a',
                 prompt: 'p',
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败', {}, { retryAfterMs: Date.now() - 1000 });
+            await TaskService.fail(task.id, 'failed', {}, { retryAfterMs: Date.now() - 1000 });
 
             const next = await TaskService.next();
             expect(next).not.toBeNull();
             expect(next!.id).toBe(task.id);
         });
 
-        test('dependsOn 未完成时返回无依赖的任务，跳过有依赖的', async () => {
+        test('return task without dependency, skip dependent when dependsOn incomplete', async () => {
             const dep = await TaskService.add({
-                name: '前置任务',
+                name: 'Prerequisite Task',
                 agent: 'a',
                 prompt: 'p',
             });
             await TaskService.add({
-                name: '依赖任务',
+                name: 'Dependent Task',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: dep.id,
@@ -240,14 +240,14 @@ describe('TaskService', () => {
             expect(next!.id).toBe(dep.id);
         });
 
-        test('dependsOn 完成后返回依赖任务', async () => {
+        test('return dependent task after dependsOn completes', async () => {
             const dep = await TaskService.add({
-                name: '前置任务',
+                name: 'Prerequisite Task',
                 agent: 'a',
                 prompt: 'p',
             });
             const dependent = await TaskService.add({
-                name: '依赖任务',
+                name: 'Dependent Task',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: dep.id,
@@ -261,15 +261,15 @@ describe('TaskService', () => {
             expect(next!.id).toBe(dependent.id);
         });
 
-        test('retryCount >= maxRetries 的 failed 任务不返回（已 dead_letter）', async () => {
+        test('do not return failed task when retryCount >= maxRetries (dead_letter)', async () => {
             const task = await TaskService.add({
-                name: '最终失败任务',
+                name: 'Final Failure Task',
                 agent: 'a',
                 prompt: 'p',
                 maxRetries: 1,
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败');
+            await TaskService.fail(task.id, 'failed');
 
             expect(task.maxRetries).toBe(1);
             const next = await TaskService.next();
@@ -278,9 +278,9 @@ describe('TaskService', () => {
     });
 
     describe('start', () => {
-        test('将 pending 任务标记为 running', async () => {
+        test('mark pending task as running', async () => {
             const task = await TaskService.add({
-                name: '启动测试',
+                name: 'Start Test',
                 agent: 'a',
                 prompt: 'p',
             });
@@ -290,7 +290,7 @@ describe('TaskService', () => {
             expect(started!.startedAt).not.toBeNull();
         });
 
-        test('不能 start 已 done 的任务', async () => {
+        test('cannot start a done task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.start(task.id);
             await TaskService.done(task.id);
@@ -299,7 +299,7 @@ describe('TaskService', () => {
             expect(result).toBeNull();
         });
 
-        test('不能 start 已 cancelled 的任务', async () => {
+        test('cannot start a cancelled task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.cancel(task.id);
 
@@ -307,7 +307,7 @@ describe('TaskService', () => {
             expect(result).toBeNull();
         });
 
-        test('可以 start failed 但未超重试次数的任务', async () => {
+        test('can start failed task without exceeding retry limit', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -315,7 +315,7 @@ describe('TaskService', () => {
                 maxRetries: 3,
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '首次失败');
+            await TaskService.fail(task.id, 'first failure');
 
             const restarted = await TaskService.start(task.id);
             expect(restarted).not.toBeNull();
@@ -324,20 +324,20 @@ describe('TaskService', () => {
     });
 
     describe('done', () => {
-        test('标记任务为 done 并记录日志', async () => {
+        test('mark task as done with log', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.start(task.id);
-            const finished = await TaskService.done(task.id, '执行完成');
+            const finished = await TaskService.done(task.id, 'execution complete');
             expect(finished).not.toBeNull();
             expect(finished!.status).toBe('done');
             expect(finished!.finishedAt).not.toBeNull();
-            expect(finished!.resultLog).toBe('执行完成');
+            expect(finished!.resultLog).toBe('execution complete');
         });
 
-        test('done 后清除 retryAfter', async () => {
+        test('clear retryAfter after done', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败', {}, { retryAfterMs: Date.now() + 60000 });
+            await TaskService.fail(task.id, 'failed', {}, { retryAfterMs: Date.now() + 60000 });
 
             await TaskService.retry(task.id);
             await TaskService.start(task.id);
@@ -347,7 +347,7 @@ describe('TaskService', () => {
     });
 
     describe('fail', () => {
-        test('第一次失败 → status=failed, retryCount=1', async () => {
+        test('first failure → status=failed, retryCount=1', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -355,14 +355,14 @@ describe('TaskService', () => {
                 maxRetries: 3,
             });
             await TaskService.start(task.id);
-            const failed = await TaskService.fail(task.id, '首次失败');
+            const failed = await TaskService.fail(task.id, 'first failure');
             expect(failed).not.toBeNull();
             expect(failed!.status).toBe('failed');
             expect(failed!.retryCount).toBe(1);
             expect(failed!.retryAfter).not.toBeNull();
         });
 
-        test('达到最大重试次数 → dead_letter', async () => {
+        test('reaching max retries → dead_letter', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -370,12 +370,12 @@ describe('TaskService', () => {
                 maxRetries: 1,
             });
             await TaskService.start(task.id);
-            const failed = await TaskService.fail(task.id, '最终失败');
+            const failed = await TaskService.fail(task.id, 'final failure');
             expect(failed!.status).toBe('dead_letter');
             expect(failed!.retryAfter).toBeNull();
         });
 
-        test('强制 setDeadLetter=true', async () => {
+        test('force setDeadLetter=true', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -383,11 +383,11 @@ describe('TaskService', () => {
                 maxRetries: 10,
             });
             await TaskService.start(task.id);
-            const failed = await TaskService.fail(task.id, '强制死信', {}, { setDeadLetter: true });
+            const failed = await TaskService.fail(task.id, 'force dead letter', {}, { setDeadLetter: true });
             expect(failed!.status).toBe('dead_letter');
         });
 
-        test('自定义 retryAfterMs', async () => {
+        test('custom retryAfterMs', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -396,39 +396,39 @@ describe('TaskService', () => {
             });
             await TaskService.start(task.id);
             const customRetry = Date.now() + 120000;
-            const failed = await TaskService.fail(task.id, '自定义延迟', {}, { retryAfterMs: customRetry });
+            const failed = await TaskService.fail(task.id, 'custom delay', {}, { retryAfterMs: customRetry });
             expect(failed!.retryAfter).toBe(customRetry);
         });
 
-        test('对不存在任务返回 null', async () => {
-            const result = await TaskService.fail(99999, '不存在');
+        test('return null for non-existent task', async () => {
+            const result = await TaskService.fail(99999, 'non-existent');
             expect(result).toBeNull();
         });
     });
 
     describe('cancel', () => {
-        test('取消 pending 任务', async () => {
+        test('cancel pending task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             const cancelled = await TaskService.cancel(task.id);
             expect(cancelled).not.toBeNull();
             expect(cancelled!.status).toBe('cancelled');
         });
 
-        test('取消 running 任务', async () => {
+        test('cancel running task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.start(task.id);
             const cancelled = await TaskService.cancel(task.id);
             expect(cancelled!.status).toBe('cancelled');
         });
 
-        test('取消不存在任务返回 null', async () => {
+        test('return null for non-existent task cancel', async () => {
             const result = await TaskService.cancel(99999);
             expect(result).toBeNull();
         });
     });
 
     describe('retry', () => {
-        test('重试 failed 任务', async () => {
+        test('retry failed task', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -436,7 +436,7 @@ describe('TaskService', () => {
                 maxRetries: 3,
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败');
+            await TaskService.fail(task.id, 'failed');
 
             const retried = await TaskService.retry(task.id);
             expect(retried).not.toBeNull();
@@ -446,7 +446,7 @@ describe('TaskService', () => {
             expect(retried!.retryAfter).toBeNull();
         });
 
-        test('重试 dead_letter 任务', async () => {
+        test('retry dead_letter task', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -454,14 +454,14 @@ describe('TaskService', () => {
                 maxRetries: 1,
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '最终失败');
+            await TaskService.fail(task.id, 'final failure');
 
             const retried = await TaskService.retry(task.id);
             expect(retried).not.toBeNull();
             expect(retried!.status).toBe('pending');
         });
 
-        test('不能重试 pending/running/done 任务', async () => {
+        test('cannot retry pending/running/done tasks', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
 
             const r1 = await TaskService.retry(task.id);
@@ -478,7 +478,7 @@ describe('TaskService', () => {
     });
 
     describe('retryBatch', () => {
-        test('批量重试同一 batch 的 failed 任务', async () => {
+        test('batch retry failed tasks in same batch', async () => {
             const t1 = await TaskService.add({
                 name: 'T1',
                 agent: 'a',
@@ -495,9 +495,9 @@ describe('TaskService', () => {
             });
 
             await TaskService.start(t1.id);
-            await TaskService.fail(t1.id, '失败');
+            await TaskService.fail(t1.id, 'failed');
             await TaskService.start(t2.id);
-            await TaskService.fail(t2.id, '失败');
+            await TaskService.fail(t2.id, 'failed');
 
             const count = await TaskService.retryBatch('batch-x');
             expect(count).toBe(2);
@@ -508,7 +508,7 @@ describe('TaskService', () => {
             expect(r2!.status).toBe('pending');
         });
 
-        test('不影响其他 batch 的任务', async () => {
+        test('does not affect other batch tasks', async () => {
             const t1 = await TaskService.add({
                 name: 'T1',
                 agent: 'a',
@@ -525,30 +525,30 @@ describe('TaskService', () => {
             });
 
             await TaskService.start(t1.id);
-            await TaskService.fail(t1.id, '失败');
+            await TaskService.fail(t1.id, 'failed');
             await TaskService.start(t2.id);
-            await TaskService.fail(t2.id, '失败');
+            await TaskService.fail(t2.id, 'failed');
 
             await TaskService.retryBatch('batch-a');
             const r2 = await TaskService.getById(t2.id);
             expect(r2!.status).toBe('failed');
         });
 
-        test('空 batch 返回 0', async () => {
+        test('empty batch returns 0', async () => {
             const count = await TaskService.retryBatch('nonexistent-batch');
             expect(count).toBe(0);
         });
     });
 
     describe('list', () => {
-        test('列出所有任务', async () => {
+        test('list all tasks', async () => {
             await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p' });
             const tasks = await TaskService.list();
             expect(tasks.length).toBe(2);
         });
 
-        test('按状态筛选', async () => {
+        test('filter by status', async () => {
             const t1 = await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             await TaskService.start(t1.id);
             await TaskService.done(t1.id);
@@ -559,7 +559,7 @@ describe('TaskService', () => {
             expect(doneTasks[0].status).toBe('done');
         });
 
-        test('按 batchId 筛选', async () => {
+        test('filter by batchId', async () => {
             await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p', batchId: 'b1' });
             await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p', batchId: 'b2' });
 
@@ -567,7 +567,7 @@ describe('TaskService', () => {
             expect(tasks.length).toBe(1);
         });
 
-        test('按 category 筛选', async () => {
+        test('filter by category', async () => {
             await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p', category: 'translate' });
             await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p', category: 'generate' });
 
@@ -575,7 +575,7 @@ describe('TaskService', () => {
             expect(tasks.length).toBe(1);
         });
 
-        test('分页 limit + offset', async () => {
+        test('pagination limit + offset', async () => {
             for (let i = 0; i < 5; i++) {
                 await TaskService.add({ name: `T${i}`, agent: 'a', prompt: 'p' });
             }
@@ -586,7 +586,7 @@ describe('TaskService', () => {
             expect(page1[0].id).not.toBe(page2[0].id);
         });
 
-        test('按 ID 倒序（新任务在前）', async () => {
+        test('order by ID descending (newest first)', async () => {
             await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p' });
             const tasks = await TaskService.list();
@@ -596,7 +596,7 @@ describe('TaskService', () => {
     });
 
     describe('stats', () => {
-        test('统计各状态数量', async () => {
+        test('count by status', async () => {
             const t1 = await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             const t2 = await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p' });
             await TaskService.add({ name: 'T3', agent: 'a', prompt: 'p' });
@@ -605,7 +605,7 @@ describe('TaskService', () => {
             await TaskService.done(t1.id);
 
             await TaskService.start(t2.id);
-            await TaskService.fail(t2.id, '失败', {}, { setDeadLetter: true });
+            await TaskService.fail(t2.id, 'failed', {}, { setDeadLetter: true });
 
             const stats = await TaskService.stats();
             expect(stats.total).toBe(3);
@@ -614,7 +614,7 @@ describe('TaskService', () => {
             expect(stats.pending).toBe(1);
         });
 
-        test('空数据库返回全零', async () => {
+        test('empty database returns all zeros', async () => {
             const stats = await TaskService.stats();
             expect(stats.total).toBe(0);
             expect(stats.pending).toBe(0);
@@ -627,7 +627,7 @@ describe('TaskService', () => {
     });
 
     describe('delete', () => {
-        test('删除存在的任务', async () => {
+        test('delete existing task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             const result = await TaskService.delete(task.id);
             expect(result).toBe(true);
@@ -636,14 +636,14 @@ describe('TaskService', () => {
             expect(found).toBeNull();
         });
 
-        test('删除不存在的任务返回 false', async () => {
+        test('delete non-existent task returns false', async () => {
             const result = await TaskService.delete(99999);
             expect(result).toBe(false);
         });
     });
 
     describe('markPendingForRetry', () => {
-        test('将任务标记为 pending 并设置 retryAfter', async () => {
+        test('mark task as pending with retryAfter', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -651,7 +651,7 @@ describe('TaskService', () => {
                 maxRetries: 3,
             });
             await TaskService.start(task.id);
-            await TaskService.fail(task.id, '失败');
+            await TaskService.fail(task.id, 'failed');
 
             const retryAfter = Date.now() + 60000;
             const updated = await TaskService.markPendingForRetry(task.id, retryAfter, 2);
@@ -665,7 +665,7 @@ describe('TaskService', () => {
     });
 
     describe('markDeadLetter', () => {
-        test('将任务标记为 dead_letter', async () => {
+        test('mark task as dead_letter', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.start(task.id);
 
@@ -677,12 +677,12 @@ describe('TaskService', () => {
         });
     });
 
-    describe('batchId 传递链路', () => {
-        test('add 时传入 batchId，getById 返回的 batchId 一致', async () => {
+    describe('batchId propagation chain', () => {
+        test('batchId passed to add is returned by getById', async () => {
             const task = await TaskService.add({
-                name: '文档翻译批次',
+                name: 'Document Translation Batch',
                 agent: 'translator',
-                prompt: '翻译技术文档',
+                prompt: 'Translate technical documentation',
                 batchId: 'translate-batch-001',
             });
 
@@ -691,11 +691,11 @@ describe('TaskService', () => {
             expect(found!.batchId).toBe('translate-batch-001');
         });
 
-        test('add 时不传 batchId，默认为 null', async () => {
+        test('batchId defaults to null when not provided to add', async () => {
             const task = await TaskService.add({
-                name: '独立审查任务',
+                name: 'Independent Review Task',
                 agent: 'reviewer',
-                prompt: '审查代码质量',
+                prompt: 'Review code quality',
             });
 
             const found = await TaskService.getById(task.id);
@@ -703,23 +703,23 @@ describe('TaskService', () => {
             expect(found!.batchId).toBeNull();
         });
 
-        test('next 排除活跃批次时，batchId 正确过滤', async () => {
+        test('next correctly filters by batchId when excluding active batches', async () => {
             await TaskService.add({
-                name: '批次A任务一',
+                name: 'Batch A Task 1',
                 agent: 'a',
-                prompt: '处理数据',
+                prompt: 'process data',
                 batchId: 'batch-a',
             });
             await TaskService.add({
-                name: '批次A任务二',
+                name: 'Batch A Task 2',
                 agent: 'a',
-                prompt: '清洗数据',
+                prompt: 'clean data',
                 batchId: 'batch-a',
             });
             const batchBTask = await TaskService.add({
-                name: '批次B任务',
+                name: 'Batch B Task',
                 agent: 'a',
-                prompt: '生成报告',
+                prompt: 'generate report',
                 batchId: 'batch-b',
             });
 
@@ -729,11 +729,11 @@ describe('TaskService', () => {
             expect(next!.batchId).toBe('batch-b');
         });
 
-        test('start 任务后，batchId 不变', async () => {
+        test('batchId unchanged after start', async () => {
             const task = await TaskService.add({
-                name: '数据分析任务',
+                name: 'Data Analysis Task',
                 agent: 'analyst',
-                prompt: '分析用户行为数据',
+                prompt: 'Analyze user behavior data',
                 batchId: 'analytics-batch',
             });
 
@@ -746,50 +746,50 @@ describe('TaskService', () => {
             expect(found!.batchId).toBe('analytics-batch');
         });
 
-        test('done 任务后，batchId 保持不变', async () => {
+        test('batchId unchanged after done', async () => {
             const task = await TaskService.add({
-                name: '图片生成任务',
+                name: 'Image Generation Task',
                 agent: 'designer',
-                prompt: '生成首页 Banner',
+                prompt: 'Generate homepage Banner',
                 batchId: 'design-batch',
             });
 
             await TaskService.start(task.id);
-            const finished = await TaskService.done(task.id, '生成完成');
+            const finished = await TaskService.done(task.id, 'generation complete');
             expect(finished!.batchId).toBe('design-batch');
 
             const found = await TaskService.getById(task.id);
             expect(found!.batchId).toBe('design-batch');
         });
 
-        test('fail 任务后，batchId 保持不变', async () => {
+        test('batchId unchanged after fail', async () => {
             const task = await TaskService.add({
-                name: '部署任务',
+                name: 'Deployment Task',
                 agent: 'devops',
-                prompt: '部署到预发布环境',
+                prompt: 'Deploy to staging environment',
                 batchId: 'deploy-batch',
                 maxRetries: 3,
             });
 
             await TaskService.start(task.id);
-            const failed = await TaskService.fail(task.id, '部署超时');
+            const failed = await TaskService.fail(task.id, 'deployment timeout');
             expect(failed!.batchId).toBe('deploy-batch');
 
             const found = await TaskService.getById(task.id);
             expect(found!.batchId).toBe('deploy-batch');
         });
 
-        test('retryBatch 后，retryCount 增加但 batchId 不变', async () => {
+        test('retryCount increases but batchId unchanged after retryBatch', async () => {
             const task = await TaskService.add({
-                name: '邮件发送任务',
+                name: 'Email Send Task',
                 agent: 'mailer',
-                prompt: '发送活动通知邮件',
+                prompt: 'Send campaign notification email',
                 batchId: 'notification-batch',
                 maxRetries: 5,
             });
 
             await TaskService.start(task.id);
-            const failed = await TaskService.fail(task.id, 'SMTP 连接超时');
+            const failed = await TaskService.fail(task.id, 'SMTP connection timeout');
             expect(failed!.retryCount).toBe(1);
             expect(failed!.batchId).toBe('notification-batch');
 
@@ -801,17 +801,17 @@ describe('TaskService', () => {
             expect(found!.retryCount).toBe(1);
         });
 
-        test('不同批次互不干扰', async () => {
+        test('different batches do not interfere', async () => {
             const t1 = await TaskService.add({
-                name: '数据处理任务一',
+                name: 'Data Processing Task 1',
                 agent: 'a',
-                prompt: '清洗订单数据',
+                prompt: 'Clean order data',
                 batchId: 'batch-x',
             });
             const t2 = await TaskService.add({
-                name: '数据处理任务二',
+                name: 'Data Processing Task 2',
                 agent: 'a',
-                prompt: '计算统计指标',
+                prompt: 'Calculate statistics',
                 batchId: 'batch-x',
             });
             await TaskService.start(t1.id);
@@ -819,21 +819,21 @@ describe('TaskService', () => {
             await TaskService.start(t2.id);
             await TaskService.done(t2.id);
             await TaskService.add({
-                name: '数据处理任务三',
+                name: 'Data Processing Task 3',
                 agent: 'a',
-                prompt: '生成可视化报表',
+                prompt: 'Generate visualization report',
                 batchId: 'batch-x',
             });
 
             const t4 = await TaskService.add({
-                name: '日志分析任务',
+                name: 'Log Analysis Task',
                 agent: 'a',
-                prompt: '分析服务端错误日志',
+                prompt: 'Analyze server error logs',
                 batchId: 'batch-y',
                 maxRetries: 3,
             });
             await TaskService.start(t4.id);
-            await TaskService.fail(t4.id, '日志文件不存在');
+            await TaskService.fail(t4.id, 'log file not found');
 
             const statsX = await TaskService.stats({ batchId: 'batch-x' });
             expect(statsX.total).toBe(3);
@@ -849,7 +849,7 @@ describe('TaskService', () => {
     });
 
     describe('resetRunningToPending', () => {
-        test('批量重置 running 任务为 pending', async () => {
+        test('batch reset running tasks to pending', async () => {
             const t1 = await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             const t2 = await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p' });
             await TaskService.start(t1.id);
@@ -864,13 +864,13 @@ describe('TaskService', () => {
             expect(r2!.status).toBe('pending');
         });
 
-        test('不重置非 running 任务', async () => {
+        test('do not reset non-running tasks', async () => {
             const t1 = await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p' });
             const count = await TaskService.resetRunningToPending([t1.id]);
             expect(count).toBe(0);
         });
 
-        test('空数组返回 0', async () => {
+        test('empty array returns 0', async () => {
             const count = await TaskService.resetRunningToPending([]);
             expect(count).toBe(0);
         });

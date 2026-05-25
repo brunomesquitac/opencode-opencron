@@ -48,6 +48,7 @@ export async function cloneTaskFromTemplate(templateId: number) {
         maxRetries: tmpl.maxRetries ?? 3,
         templateId: tmpl.id,
         scheduledAt: nowMs,
+        notifyOn: tmpl.notifyOn ?? undefined,
     });
 
     await db

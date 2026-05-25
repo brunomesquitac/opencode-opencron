@@ -7,9 +7,9 @@ import { TaskRunService } from '../src/core/services/task-run.service';
 
 async function createTask(overrides: Record<string, unknown> = {}) {
     return TaskService.add({
-        name: '看门狗测试',
+        name: 'Watchdog Test',
         agent: 'test-agent',
-        prompt: '测试',
+        prompt: 'test',
         ...overrides,
     });
 }
@@ -19,11 +19,11 @@ describe('checkHeartbeats', () => {
         setupTestDb();
     });
 
-    test('无 stale run 时什么都不做', async () => {
+    test('do nothing when no stale run', async () => {
         await checkHeartbeats(-100000);
     });
 
-    test('检测 stale run 并标记为 dead_letter（达到最大重试）', async () => {
+    test('detect stale run and mark as dead_letter (max retries reached)', async () => {
         const task = await createTask({ maxRetries: 1 });
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
@@ -34,7 +34,7 @@ describe('checkHeartbeats', () => {
         expect(updatedTask!.status).toBe('dead_letter');
     });
 
-    test('检测 stale run 并重新安排重试（未达最大重试）', async () => {
+    test('detect stale run and schedule retry (max retries not reached)', async () => {
         const task = await createTask({ maxRetries: 3 });
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
@@ -47,7 +47,7 @@ describe('checkHeartbeats', () => {
         expect(updatedTask!.retryCount).toBe(1);
     });
 
-    test('多次心跳超时后达到 dead_letter', async () => {
+    test('multiple heartbeat timeouts cause dead_letter', async () => {
         const task = await createTask({ maxRetries: 2 });
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
@@ -68,7 +68,7 @@ describe('checkHeartbeats', () => {
         expect(updatedTask!.retryCount).toBe(2);
     });
 
-    test('stale run 的 run 记录标记为 failed', async () => {
+    test('stale run record marked as failed', async () => {
         const task = await createTask({ maxRetries: 3 });
         await TaskService.start(task.id);
         const run = await TaskRunService.create({ taskId: task.id, status: 'running' });
@@ -77,7 +77,7 @@ describe('checkHeartbeats', () => {
 
         const updatedRun = await TaskRunService.getById(run.id);
         expect(updatedRun!.status).toBe('failed');
-        expect(updatedRun!.log).toContain('心跳超时');
+        expect(updatedRun!.log).toContain('Heartbeat timeout');
     });
 });
 
@@ -86,10 +86,10 @@ describe('cleanupOldRecords', () => {
         setupTestDb();
     });
 
-    test('清理已完成的旧任务', async () => {
+    test('clean up old completed tasks', async () => {
         const task = await createTask();
         await TaskService.start(task.id);
-        await TaskService.done(task.id, '完成');
+        await TaskService.done(task.id, 'complete');
 
         const deleted = await cleanupOldRecords(-1);
         expect(deleted).toBe(1);
@@ -98,20 +98,20 @@ describe('cleanupOldRecords', () => {
         expect(found).toBeNull();
     });
 
-    test('清理失败和 dead_letter 的旧任务', async () => {
+    test('clean up old failed and dead_letter tasks', async () => {
         const t1 = await createTask({ name: 'T1', maxRetries: 1 });
         await TaskService.start(t1.id);
-        await TaskService.fail(t1.id, '失败');
+        await TaskService.fail(t1.id, 'failed');
 
         const t2 = await createTask({ name: 'T2', maxRetries: 1 });
         await TaskService.start(t2.id);
-        await TaskService.fail(t2.id, '死信', {}, { setDeadLetter: true });
+        await TaskService.fail(t2.id, 'dead letter', {}, { setDeadLetter: true });
 
         const deleted = await cleanupOldRecords(-1);
         expect(deleted).toBe(2);
     });
 
-    test('不清理 pending/running 任务', async () => {
+    test('do not clean up pending/running tasks', async () => {
         const t1 = await createTask({ name: 'P' });
         const t2 = await createTask({ name: 'R' });
         await TaskService.start(t2.id);
@@ -124,7 +124,7 @@ describe('cleanupOldRecords', () => {
         expect(found2).not.toBeNull();
     });
 
-    test('同时清理关联的 run 记录', async () => {
+    test('also clean up associated run records', async () => {
         const task = await createTask();
         await TaskService.start(task.id);
         const run = await TaskRunService.create({ taskId: task.id, status: 'running' });

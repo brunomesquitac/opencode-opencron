@@ -1,46 +1,49 @@
-// 任务表 Schema
-// 用于存储 AI Agent 的通用任务队列
+// task table schema
+// stores the general-purpose AI Agent task queue
 
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
 export const tasks = sqliteTable('tasks', {
     id: integer('id').primaryKey({ autoIncrement: true }),
 
-    // 任务配置
+    // task configuration
     name: text('name').notNull(),
     agent: text('agent').notNull(),
     model: text('model').default('default'),
     prompt: text('prompt').notNull(),
     cwd: text('cwd'),
 
-    // 分类与优先级
+    // category and priority
     category: text('category').default('general'),
     importance: integer('importance').default(3),
     urgency: integer('urgency').default(3),
 
-    // 任务分组与依赖
+    // task grouping and dependencies
     batchId: text('batch_id'),
     dependsOn: integer('depends_on'),
 
-    // 状态
+    // status
     status: text('status').default('pending'),
 
-    // 时间戳（老字段保持秒级 timestamp）
+    // timestamps (legacy fields use second-level timestamp)
     createdAt: integer('created_at', { mode: 'timestamp' })
         .$defaultFn(() => new Date()),
     startedAt: integer('started_at', { mode: 'timestamp' }),
     finishedAt: integer('finished_at', { mode: 'timestamp' }),
 
-    // 执行结果
+    // execution result
     resultLog: text('result_log'),
     retryCount: integer('retry_count').default(0),
     maxRetries: integer('max_retries').default(3),
 
-    // Gateway 扩展字段（毫秒）
+    // Gateway extension fields (milliseconds)
     retryAfter: integer('retry_after'),
     timeoutMs: integer('timeout_ms'),
     templateId: integer('template_id'),
     scheduledAt: integer('scheduled_at'),
+
+    // Notification channels override (JSON)
+    notifyOn: text('notify_on'),
 });
 
 export type Task = typeof tasks.$inferSelect;
@@ -70,7 +73,7 @@ export const taskRuns = sqliteTable('task_runs', {
     log: text('log'),
     messagesJson: text('messages_json'),
 
-    // Gateway 运行时态字段（毫秒）
+    // Gateway runtime fields (milliseconds)
     lockedAt: integer('locked_at'),
     lockedBy: text('locked_by'),
     heartbeatAt: integer('heartbeat_at'),
@@ -80,7 +83,7 @@ export const taskRuns = sqliteTable('task_runs', {
     toolsUsed: text('tools_used'),
     skillsUsed: text('skills_used'),
 
-    // Token e custo
+    // Token and cost
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
     totalTokens: integer('total_tokens'),
@@ -116,6 +119,8 @@ export const taskTemplates = sqliteTable('task_templates', {
 
     createdAt: integer('created_at').default(0),
     updatedAt: integer('updated_at').default(0),
+
+    notifyOn: text('notify_on'),
 });
 
 export type TaskTemplate = typeof taskTemplates.$inferSelect;

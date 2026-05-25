@@ -4,20 +4,20 @@ import { TaskService } from '../src/core/services/task.service';
 import { TaskRunService } from '../src/core/services/task-run.service';
 import { TaskTemplateService } from '../src/core/services/task-template.service';
 
-describe('边界条件测试', () => {
+describe('edge case tests', () => {
     beforeEach(() => {
         setupTestDb();
     });
 
-    describe('TaskService 边界', () => {
-        test('done 一个尚未 start 的任务（直接 done）', async () => {
+    describe('TaskService edge cases', () => {
+        test('done a task without starting it (direct done)', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             const result = await TaskService.done(task.id);
             expect(result).not.toBeNull();
             expect(result!.status).toBe('done');
         });
 
-        test('cancel 一个已 done 的任务', async () => {
+        test('cancel a done task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.start(task.id);
             await TaskService.done(task.id);
@@ -26,14 +26,14 @@ describe('边界条件测试', () => {
             expect(cancelled!.status).toBe('cancelled');
         });
 
-        test('retry 已 cancelled 的任务返回 null', async () => {
+        test('retry cancelled task returns null', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             await TaskService.cancel(task.id);
             const result = await TaskService.retry(task.id);
             expect(result).toBeNull();
         });
 
-        test('同一任务连续 fail 多次直到 dead_letter', async () => {
+        test('same task fails multiple times until dead_letter', async () => {
             const task = await TaskService.add({
                 name: 'T',
                 agent: 'a',
@@ -43,7 +43,7 @@ describe('边界条件测试', () => {
 
             for (let i = 1; i <= 3; i++) {
                 await TaskService.start(task.id);
-                await TaskService.fail(task.id, `第${i}次失败`);
+                await TaskService.fail(task.id, `failure #${i}`);
             }
 
             const updated = await TaskService.getById(task.id);
@@ -51,7 +51,7 @@ describe('边界条件测试', () => {
             expect(updated!.retryCount).toBe(3);
         });
 
-        test('deleteOlderThan 只删除终态任务', async () => {
+        test('deleteOlderThan only deletes terminal tasks', async () => {
             const t1 = await TaskService.add({ name: 'Done', agent: 'a', prompt: 'p' });
             await TaskService.start(t1.id);
             await TaskService.done(t1.id);
@@ -65,7 +65,7 @@ describe('边界条件测试', () => {
             expect(found).not.toBeNull();
         });
 
-        test('stats 按 batchId 过滤', async () => {
+        test('stats filter by batchId', async () => {
             await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p', batchId: 'b1' });
             await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p', batchId: 'b2' });
 
@@ -73,7 +73,7 @@ describe('边界条件测试', () => {
             expect(stats.total).toBe(1);
         });
 
-        test('stats 按 cwd 过滤', async () => {
+        test('stats filter by cwd', async () => {
             await TaskService.add({ name: 'T1', agent: 'a', prompt: 'p', cwd: '/dir1' });
             await TaskService.add({ name: 'T2', agent: 'a', prompt: 'p', cwd: '/dir2' });
 
@@ -81,16 +81,16 @@ describe('边界条件测试', () => {
             expect(stats.total).toBe(1);
         });
 
-        test('next urgency 高的任务优先于 importance 高的任务', async () => {
+        test('next prioritizes high urgency over high importance', async () => {
             await TaskService.add({
-                name: '高importance低urgency',
+                name: 'High importance Low urgency',
                 agent: 'a',
                 prompt: 'p',
                 importance: 5,
                 urgency: 1,
             });
             const t2 = await TaskService.add({
-                name: '低importance高urgency',
+                name: 'Low importance High urgency',
                 agent: 'a',
                 prompt: 'p',
                 importance: 1,
@@ -101,9 +101,9 @@ describe('边界条件测试', () => {
             expect(next!.id).toBe(t2.id);
         });
 
-        test('next 处理 dependsOn 指向不存在任务的情况', async () => {
+        test('next handles dependsOn pointing to non-existent task', async () => {
             await TaskService.add({
-                name: '悬空依赖',
+                name: 'Dangling Dependency',
                 agent: 'a',
                 prompt: 'p',
                 dependsOn: 99999,
@@ -114,8 +114,8 @@ describe('边界条件测试', () => {
         });
     });
 
-    describe('TaskRunService 边界', () => {
-        test('同一任务多个并行 run', async () => {
+    describe('TaskRunService edge cases', () => {
+        test('multiple parallel runs for same task', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p' });
             const r1 = await TaskRunService.create({ taskId: task.id, status: 'running' });
             const r2 = await TaskRunService.create({ taskId: task.id, status: 'running' });
@@ -126,7 +126,7 @@ describe('边界条件测试', () => {
             expect(runningRuns.map((r) => r.id)).toContain(r2.id);
         });
 
-        test('getStaleRuns 返回正确的重试信息', async () => {
+        test('getStaleRuns returns correct retry info', async () => {
             const task = await TaskService.add({ name: 'T', agent: 'a', prompt: 'p', maxRetries: 5 });
             await TaskService.start(task.id);
             await TaskRunService.create({ taskId: task.id, status: 'running' });
@@ -138,10 +138,10 @@ describe('边界条件测试', () => {
         });
     });
 
-    describe('TaskTemplateService 边界', () => {
-        test('create cron 模板自动计算 nextRunAt', async () => {
+    describe('TaskTemplateService edge cases', () => {
+        test('create cron template auto-calculates nextRunAt', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: 'Cron模板',
+                name: 'Cron Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'cron',
@@ -151,9 +151,9 @@ describe('边界条件测试', () => {
             expect(tmpl.nextRunAt!).toBeGreaterThan(Date.now() - 1000);
         });
 
-        test('create recurring 模板自动计算 nextRunAt', async () => {
+        test('create recurring template auto-calculates nextRunAt', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: 'Recurring模板',
+                name: 'Recurring Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'recurring',
@@ -162,10 +162,10 @@ describe('边界条件测试', () => {
             expect(tmpl.nextRunAt).not.toBeNull();
         });
 
-        test('create delayed 模板使用指定 runAt', async () => {
+        test('create delayed template uses specified runAt', async () => {
             const runAt = Date.now() + 86400000;
             const tmpl = await TaskTemplateService.create({
-                name: 'Delayed模板',
+                name: 'Delayed Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'delayed',
@@ -174,21 +174,21 @@ describe('边界条件测试', () => {
             expect(tmpl.nextRunAt).toBe(runAt);
         });
 
-        test('delete 不存在的模板返回 false', async () => {
+        test('delete non-existent template returns false', async () => {
             const result = await TaskTemplateService.delete(99999);
             expect(result).toBe(false);
         });
 
-        test('enable/disable 不存在的模板返回 null', async () => {
+        test('enable/disable non-existent template returns null', async () => {
             expect(await TaskTemplateService.enable(99999)).toBeNull();
             expect(await TaskTemplateService.disable(99999)).toBeNull();
         });
 
-        test('getById 不存在返回 null', async () => {
+        test('getById non-existent returns null', async () => {
             expect(await TaskTemplateService.getById(99999)).toBeNull();
         });
 
-        test('calculateNextRunAt 无效 cron 返回 null', () => {
+        test('calculateNextRunAt invalid cron returns null', () => {
             const result = TaskTemplateService.calculateNextRunAt('cron', {
                 cronExpr: 'invalid-cron',
                 intervalMs: null,
@@ -197,7 +197,7 @@ describe('边界条件测试', () => {
             expect(result).toBeNull();
         });
 
-        test('calculateNextRunAt recurring 无 intervalMs 返回 null', () => {
+        test('calculateNextRunAt recurring without intervalMs returns null', () => {
             const result = TaskTemplateService.calculateNextRunAt('recurring', {
                 cronExpr: null,
                 intervalMs: null,
@@ -206,7 +206,7 @@ describe('边界条件测试', () => {
             expect(result).toBeNull();
         });
 
-        test('calculateNextRunAt delayed 无 runAt 返回 null', () => {
+        test('calculateNextRunAt delayed without runAt returns null', () => {
             const result = TaskTemplateService.calculateNextRunAt('delayed', {
                 cronExpr: null,
                 intervalMs: null,
@@ -215,7 +215,7 @@ describe('边界条件测试', () => {
             expect(result).toBeNull();
         });
 
-        test('calculateNextRunAt 未知类型返回 null', () => {
+        test('calculateNextRunAt unknown type returns null', () => {
             const result = TaskTemplateService.calculateNextRunAt('unknown' as never, {
                 cronExpr: null,
                 intervalMs: null,
@@ -225,12 +225,12 @@ describe('边界条件测试', () => {
         });
     });
 
-    describe('完整任务流程集成', () => {
-        test('模板 → 克隆 → 执行 → 完成', async () => {
+    describe('full task flow integration', () => {
+        test('template → clone → execute → complete', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: '流程测试',
+                name: 'Flow Test',
                 agent: 'worker',
-                prompt: '执行任务',
+                prompt: 'execute task',
                 scheduleType: 'recurring',
                 intervalMs: 3600000,
                 maxRetries: 2,
@@ -247,8 +247,8 @@ describe('边界条件测试', () => {
                 model: 'glm-4',
             });
 
-            await TaskRunService.done(run.id, '执行成功');
-            await TaskService.done(task!.id, '任务完成');
+            await TaskRunService.done(run.id, 'execution successful');
+            await TaskService.done(task!.id, 'task complete');
 
             const final = await TaskService.getById(task!.id);
             expect(final!.status).toBe('done');
@@ -258,11 +258,11 @@ describe('边界条件测试', () => {
             expect(tmplAfter!.nextRunAt).not.toBeNull();
         });
 
-        test('多任务优先级调度', async () => {
+        test('multi-task priority scheduling', async () => {
             const tasks = [];
             for (let i = 5; i >= 1; i--) {
                 tasks.push(await TaskService.add({
-                    name: `优先级${i}`,
+                    name: `Priority ${i}`,
                     agent: 'a',
                     prompt: `importance=${i}`,
                     importance: i,
@@ -284,16 +284,16 @@ describe('边界条件测试', () => {
             }
         });
 
-        test('batch 内任务逐个执行', async () => {
+        test('batch tasks execute sequentially', async () => {
             const batchId = 'sequential-batch';
             const t1 = await TaskService.add({
-                name: '批次任务1',
+                name: 'Batch Task 1',
                 agent: 'a',
                 prompt: 'p',
                 batchId,
             });
             const t2 = await TaskService.add({
-                name: '批次任务2',
+                name: 'Batch Task 2',
                 agent: 'a',
                 prompt: 'p',
                 batchId,

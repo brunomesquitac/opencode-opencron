@@ -7,6 +7,7 @@ import { spawn } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { notifyTask } from '@gateway/notifications/service';
 
 interface OpencodeServer {
     url: string;
@@ -114,16 +115,16 @@ export class WorkerEngine {
     private stopped = false;
     private pollTimer: ReturnType<typeof setTimeout> | null = null;
     private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    private cfg: GatewayConfig['worker'];
+    private cfg: GatewayConfig;
 
     constructor(cfg: GatewayConfig) {
-        this.cfg = cfg.worker;
+        this.cfg = cfg;
     }
 
     start() {
         this.stopped = false;
         this.poll();
-        this.heartbeatTimer = setInterval(() => this.updateHeartbeats(), this.cfg.heartbeatIntervalMs);
+        this.heartbeatTimer = setInterval(() => this.updateHeartbeats(), this.cfg.worker.heartbeatIntervalMs);
     }
 
     stop(): Promise<void> {
@@ -157,12 +158,12 @@ export class WorkerEngine {
         if (this.stopped) return;
         this.tryDispatch().then(() => {
             if (this.stopped) return;
-            this.pollTimer = setTimeout(() => this.poll(), this.cfg.pollIntervalMs);
+            this.pollTimer = setTimeout(() => this.poll(), this.cfg.worker.pollIntervalMs);
         });
     }
 
     private async tryDispatch() {
-        while (!this.stopped && this.runningTasks.size < this.cfg.maxConcurrency) {
+        while (!this.stopped && this.runningTasks.size < this.cfg.worker.maxConcurrency) {
             try {
                 const excludedBatchIds = [...this.activeBatchIds];
                 const task = await TaskService.next({ excludedBatchIds });
@@ -312,11 +313,19 @@ export class WorkerEngine {
             if (modelError) {
                 await TaskRunService.fail(runId, modelError, messagesJson ?? undefined);
                 await TaskService.fail(task.id, modelError);
+                task.resultLog = modelError;
+                notifyTask(task, 'failed', this.cfg.notifications, this.cfg.dashboard.port).catch((err) => {
+                    console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'notification failed', taskId: task.id, error: err instanceof Error ? err.message : String(err) }));
+                });
                 console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task model error', taskId: task.id, error: modelError }));
             } else {
                 const resultLog = output.trim().slice(-8000) || '[no text output captured]';
                 await TaskRunService.done(runId, resultLog, messagesJson ?? undefined);
                 await TaskService.done(task.id, resultLog);
+                task.resultLog = resultLog;
+                notifyTask(task, 'done', this.cfg.notifications, this.cfg.dashboard.port).catch((err) => {
+                    console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'notification failed', taskId: task.id, error: err instanceof Error ? err.message : String(err) }));
+                });
                 console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'task done', taskId: task.id }));
             }
 
@@ -329,6 +338,10 @@ export class WorkerEngine {
             if (currentStatus?.status === 'running') {
                 await TaskService.fail(task.id, 'SDK execution error: ' + errorMsg);
             }
+            task.resultLog = 'SDK execution error: ' + errorMsg;
+            notifyTask(task, 'failed', this.cfg.notifications, this.cfg.dashboard.port).catch((notifyErr) => {
+                console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'notification failed', taskId: task.id, error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr) }));
+            });
             console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task failed', taskId: task.id, error: errorMsg }));
         } finally {
             server.close();

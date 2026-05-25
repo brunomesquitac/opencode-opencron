@@ -38,7 +38,7 @@ describe('CLI integration', () => {
 
     test('add task', () => {
         const result = runJson<{ id: number; status: string }>(
-            `add --name "集成测试任务A" --agent "test-agent" --prompt "测试提示词" --importance 4 --urgency 5`,
+            `add --name "Integration Test Task A" --agent "test-agent" --prompt "test prompt" --importance 4 --urgency 5`,
         );
         expect(result.id).toBeGreaterThan(0);
         expect(result.status).toBe('created');
@@ -47,7 +47,7 @@ describe('CLI integration', () => {
 
     test('add task with batch', () => {
         const result = runJson<{ id: number; status: string }>(
-            `add --name "批次任务B" --agent "test-agent" --prompt "批次测试" --batch "batch-test-001"`,
+            `add --name "Batch Task B" --agent "test-agent" --prompt "batch test" --batch "batch-test-001"`,
         );
         expect(result.id).toBeGreaterThan(0);
         batchTaskId = result.id;
@@ -61,7 +61,7 @@ describe('CLI integration', () => {
     test('get task by id', () => {
         const task = runJson<{ id: number; name: string; status: string }>(`get --id ${taskId1}`);
         expect(task.id).toBe(taskId1);
-        expect(task.name).toBe('集成测试任务A');
+        expect(task.name).toBe('Integration Test Task A');
     });
 
     test('next returns a pending task', () => {
@@ -75,19 +75,19 @@ describe('CLI integration', () => {
     });
 
     test('done task', () => {
-        const task = runJson<{ id: number; status: string }>(`done --id ${taskId1} --log "测试完成"`);
+        const task = runJson<{ id: number; status: string }>(`done --id ${taskId1} --log "test complete"`);
         expect(task.status).toBe('done');
     });
 
     test('fail and retry task', () => {
         const added = runJson<{ id: number }>(
-            `add --name "失败重试测试" --agent "test-agent" --prompt "失败测试"`,
+            `add --name "Fail Retry Test" --agent "test-agent" --prompt "fail test"`,
         );
         taskId2 = added.id;
 
         run(`start --id ${taskId2}`);
         const failed = runJson<{ id: number; status: string; retryCount: number }>(
-            `fail --id ${taskId2} --log "模拟失败"`,
+            `fail --id ${taskId2} --log "simulated failure"`,
         );
         expect(failed.status).toBe('failed');
 
@@ -97,7 +97,7 @@ describe('CLI integration', () => {
 
     test('cancel task', () => {
         const added = runJson<{ id: number }>(
-            `add --name "取消测试" --agent "test-agent" --prompt "取消"`,
+            `add --name "Cancel Test" --agent "test-agent" --prompt "cancel"`,
         );
         const cancelled = runJson<{ id: number; status: string }>(`cancel --id ${added.id}`);
         expect(cancelled.status).toBe('cancelled');
@@ -111,14 +111,14 @@ describe('CLI integration', () => {
 
     test('batch retry', () => {
         run(`start --id ${batchTaskId}`);
-        run(`fail --id ${batchTaskId} --log "批次失败"`);
+        run(`fail --id ${batchTaskId} --log "batch failure"`);
         const result = runJson<{ retried: number; batchId: string }>(`retry --batch batch-test-001`);
         expect(result.retried).toBeGreaterThanOrEqual(1);
     });
 
     test('delete task', () => {
         const added = runJson<{ id: number }>(
-            `add --name "删除测试" --agent "test-agent" --prompt "删除"`,
+            `add --name "Delete Test" --agent "test-agent" --prompt "delete"`,
         );
         const result = runJson<{ deleted: boolean }>(`delete --id ${added.id}`);
         expect(result.deleted).toBe(true);
@@ -135,7 +135,7 @@ describe('CLI template', () => {
 
     test('template add', () => {
         const result = runJson<{ id: number; status: string; nextRunAt: number | null }>(
-            `template add --name "测试模板" --agent "test-agent" --prompt "定时任务" --type cron --cron "0 9 * * *"`,
+            `template add --name "Test Template" --agent "test-agent" --prompt "scheduled task" --type cron --cron "0 9 * * *"`,
         );
         expect(result.id).toBeGreaterThan(0);
         expect(result.status).toBe('created');

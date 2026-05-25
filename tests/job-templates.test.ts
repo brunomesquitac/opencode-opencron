@@ -10,31 +10,31 @@ describe('job-templates', () => {
     });
 
     describe('cloneTaskFromTemplate', () => {
-        test('从模板克隆任务', async () => {
+        test('clone task from template', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: '每日报告',
+                name: 'Daily Report',
                 agent: 'reporter',
-                prompt: '生成每日报告',
+                prompt: 'Generate daily report',
                 scheduleType: 'recurring',
                 intervalMs: 86400000,
             });
 
             const task = await cloneTaskFromTemplate(tmpl.id);
             expect(task).not.toBeNull();
-            expect(task!.name).toBe('每日报告');
+            expect(task!.name).toBe('Daily Report');
             expect(task!.agent).toBe('reporter');
             expect(task!.templateId).toBe(tmpl.id);
             expect(task!.status).toBe('pending');
         });
 
-        test('不存在的模板返回 null', async () => {
+        test('non-existent template returns null', async () => {
             const result = await cloneTaskFromTemplate(99999);
             expect(result).toBeNull();
         });
 
-        test('maxInstances 限制并发实例数', async () => {
+        test('maxInstances limits concurrent instances', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: '受限模板',
+                name: 'Limited Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'recurring',
@@ -49,9 +49,9 @@ describe('job-templates', () => {
             expect(task2).toBeNull();
         });
 
-        test('模板完成时允许再次克隆', async () => {
+        test('clone allowed again when template completes', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: '可重复模板',
+                name: 'Repeatable Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'recurring',
@@ -69,10 +69,10 @@ describe('job-templates', () => {
             expect(task2).not.toBeNull();
         });
 
-        test('更新模板的 lastRunAt 和 nextRunAt', async () => {
+        test('update template lastRunAt and nextRunAt', async () => {
             const before = Date.now();
             const tmpl = await TaskTemplateService.create({
-                name: '更新检查',
+                name: 'Update Check',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'recurring',
@@ -88,9 +88,9 @@ describe('job-templates', () => {
     });
 
     describe('getDueTemplates', () => {
-        test('返回到期的启用模板', async () => {
+        test('return due enabled templates', async () => {
             await TaskTemplateService.create({
-                name: '到期模板',
+                name: 'Due Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'delayed',
@@ -101,9 +101,9 @@ describe('job-templates', () => {
             expect(due.length).toBe(1);
         });
 
-        test('不返回未到期的模板', async () => {
+        test('do not return non-due templates', async () => {
             await TaskTemplateService.create({
-                name: '未到期模板',
+                name: 'Non-due Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'delayed',
@@ -114,9 +114,9 @@ describe('job-templates', () => {
             expect(due.length).toBe(0);
         });
 
-        test('不返回禁用的模板', async () => {
+        test('do not return disabled templates', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: '禁用模板',
+                name: 'Disabled Template',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'delayed',
@@ -130,9 +130,9 @@ describe('job-templates', () => {
     });
 
     describe('initializeNextRunAt', () => {
-        test('为 nextRunAt 为 null 的模板初始化', async () => {
+        test('initialize templates with null nextRunAt', async () => {
             const tmpl = await TaskTemplateService.create({
-                name: '初始化测试',
+                name: 'Init Test',
                 agent: 'a',
                 prompt: 'p',
                 scheduleType: 'recurring',

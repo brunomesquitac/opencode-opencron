@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import type { NotificationsConfig, ChannelName } from '@gateway/channels/channel.interface';
 
 export interface GatewayConfig {
     worker: {
@@ -27,6 +28,7 @@ export interface GatewayConfig {
         level: string;
         format: 'json' | 'text';
     };
+    notifications: NotificationsConfig;
 }
 
 const DEFAULT_CONFIG: GatewayConfig = {
@@ -53,6 +55,15 @@ const DEFAULT_CONFIG: GatewayConfig = {
     logging: {
         level: 'info',
         format: 'json',
+    },
+    notifications: {
+        enabled: true,
+        defaults: {
+            on_success: [],
+            on_failure: [],
+            on_dead_letter: [],
+        },
+        channels: {},
     },
 };
 
@@ -93,3 +104,40 @@ export function loadConfig(): GatewayConfig {
 }
 
 export { CONFIG_PATH };
+
+export function expandEnvVar(value: string): string {
+    return value.replace(/\$\{([^}]+)\}/g, (_match, varName: string) => {
+        return process.env[varName] ?? '';
+    });
+}
+
+export function expandEnvVars(obj: Record<string, unknown>): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'string') {
+            result[key] = expandEnvVar(value);
+        } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            result[key] = expandEnvVars(value as Record<string, unknown>);
+        } else {
+            result[key] = value;
+        }
+    }
+    return result;
+}
+
+export function getActiveChannels(config: NotificationsConfig): ChannelName[] {
+    const allNames: ChannelName[] = ['telegram', 'discord', 'slack', 'email', 'webhook'];
+    return allNames.filter((name) => {
+        const channelConfig = config.channels[name];
+        if (!channelConfig) return false;
+        const resolved = expandEnvVars(channelConfig) as Record<string, unknown>;
+        switch (name) {
+            case 'telegram': return !!(resolved.botToken && resolved.chatId);
+            case 'discord': return !!(resolved.webhookUrl);
+            case 'slack': return !!(resolved.webhookUrl);
+            case 'email': return !!(resolved.host && resolved.user && resolved.pass);
+            case 'webhook': return !!(resolved.url);
+            default: return false;
+        }
+    });
+}

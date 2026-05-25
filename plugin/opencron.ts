@@ -1,9 +1,9 @@
 /**
- * OpenCode opencron 任务管理插件
+ * OpenCode opencron task management plugin
  *
- * [输入]: 任务配置（名称、Agent、提示词等）
- * [输出]: 任务状态、执行结果
- * [定位]: 通过 opencron_* 工具管理 AI Agent 任务队列
+ * [Input]: Task config (name, agent, prompt, etc.)
+ * [Output]: Task status, execution results
+ * [Purpose]: Manage AI Agent task queue via opencron_* tools
  */
 
 import { type Plugin, type Hooks, tool } from "@opencode-ai/plugin";
@@ -42,26 +42,26 @@ function ensureInit() {
     } catch {}
 }
 
-const RUNNER_PROMPT = `你是 **opencron 任务执行器**。
+const RUNNER_PROMPT = `You are the **opencron task executor**.
 
-## 工作流程
+## Workflow
 
-### 1. 获取任务
+### 1. Fetch Task
 
-- 如果用户输入包含 \`执行任务 ID: <数字>\`，用 \`opencron_get(id)\` 获取该任务
-- 否则用 \`opencron_next\` 获取下一个待执行任务
-- 如果没有任务，报告"队列为空"并结束
+- If user input contains \`execute task ID: <number>\`, use \`opencron_get(id)\` to fetch that task
+- Otherwise use \`opencron_next\` to get the next pending task
+- If no task is available, report "queue is empty" and finish
 
-### 2. 标记开始
+### 2. Mark Start
 
-- 如果任务状态是 \`pending\`，调用 \`opencron_start(id)\` 标记为 running
-- 如果已经是 \`running\`（Worker 已标记），跳过此步
+- If task status is \`pending\`, call \`opencron_start(id)\` to mark as running
+- If already \`running\` (already marked by Worker), skip this step
 
-### 3. 执行任务
+### 3. Execute Task
 
-用 Bash 工具执行子 Agent，**必须传入 timeout 参数**：
+Execute the sub-agent using the Bash tool, **must include timeout parameter**:
 
-**工具调用格式**：
+**Tool call format**:
 \`\`\`
 Bash(
   command: "opencode run --agent \\"<task.agent>\\" -m \\"<model>\\" --format json \\"<task.prompt>\\"",
@@ -70,50 +70,50 @@ Bash(
 )
 \`\`\`
 
-- **command**：执行子 Agent 的命令
-- **workdir**：使用 \`task.cwd\`（若为空则用当前目录）
-- **model**：从用户输入解析 \`OVERRIDE_MODEL=xxx\`，用它作为 \`-m\` 参数；解析不到就不传 \`-m\`
-- **timeout**：**必须设置为 3600000（60 分钟）**
-- **安全检查**：如果 \`task.agent\` 是 \`opencron-runner\`，直接 fail 并结束（防止递归）
+- **command**: command to execute the sub-agent
+- **workdir**: use \`task.cwd\` (or current directory if empty)
+- **model**: parse \`OVERRIDE_MODEL=xxx\` from user input and use as \`-m\` parameter; omit \`-m\` if not found
+- **timeout**: **must be set to 3600000 (60 minutes)**
+- **safety check**: if \`task.agent\` is \`opencron-runner\`, immediately fail and finish (prevents recursion)
 
-### 4. 判断结果并更新状态
+### 4. Evaluate Result and Update Status
 
-看子 Agent 的输出内容，判断任务是否成功完成：
+Check the sub-agent's output to determine if the task was completed successfully:
 
-- **成功**：子 Agent 完成了任务要求的工作 → 调用 \`opencron_done(id, "简要描述完成情况")\`
-- **失败**：子 Agent 报错、拒绝执行、明确说无法完成、或明显没做完 → 调用 \`opencron_fail(id, "失败原因")\`
+- **Success**: sub-agent completed the required work → call \`opencron_done(id, "brief completion description")\`
+- **Failure**: sub-agent errored, refused, explicitly said it cannot complete, or clearly did not finish → call \`opencron_fail(id, "failure reason")\`
 
-用你的判断力，不需要死板的规则。
+Use your judgment; no rigid rules needed.
 
-## 注意事项
+## Notes
 
-1. 你是调度器，不要自己执行任务内容，必须用 Bash 调用 \`opencode run\`
-2. 完整传递 \`task.prompt\`，不要擅自修改
-3. 一次只处理一个任务，处理完就结束`;
+1. You are a scheduler, do not execute tasks yourself — must use Bash to call \`opencode run\`
+2. Pass \`task.prompt\` in full, do not modify it
+3. Process one task at a time, finish before stopping`;
 
 const SYSTEM_INSTRUCTION = `
-## opencron 任务队列系统
+## opencron task queue system
 
-当前环境已安装 opencron 任务队列插件。你可以通过以下工具管理任务：
+The opencron task queue plugin is installed. You can manage tasks using the following tools:
 
-### 核心工作流
+### Core Workflow
 
-1. **创建任务**: 用 \`opencron_add\` 创建任务到队列，Gateway 会自动调度执行
-2. **查看状态**: 用 \`opencron_status\` 查看队列统计，\`opencron_list\` 查看任务列表
-3. **重试/管理**: 用 \`opencron_retry\` 重试失败任务，\`opencron_get\` 查看详情
+1. **Create task**: use \`opencron_add\` to add a task to the queue; Gateway will dispatch automatically
+2. **Check status**: use \`opencron_status\` to view queue statistics, \`opencron_list\` to list tasks
+3. **Retry/Manage**: use \`opencron_retry\` to retry failed tasks, \`opencron_get\` to view details
 
-### 何时使用
+### When to Use
 
-- 当用户说"帮我创建一个任务"、"把这个做成定时任务"时，使用 \`opencron_add\` 或 \`opencron_schedule\`
-- 当用户问"任务进展如何"时，用 \`opencron_status\` 和 \`opencron_list\`
-- 当用户说"重试失败的任务"时，用 \`opencron_retry\`
+- When the user says "create a task", "schedule this", or similar, use \`opencron_add\` or \`opencron_schedule\`
+- When the user asks "how are my tasks going", use \`opencron_status\` and \`opencron_list\`
+- When the user says "retry failed tasks", use \`opencron_retry\`
 
-### 调度模板
+### Schedule Templates
 
-用 \`opencron_schedule\` 可创建三种定时任务：
-- \`cron\`: cron 表达式（如 "0 9 * * 1-5" = 工作日 9 点）
-- \`recurring\`: 固定间隔循环（如每 6 小时）
-- \`delayed\`: 一次性定时执行
+Use \`opencron_schedule\` to create three types of scheduled tasks:
+- \`cron\`: cron expression (e.g. "0 9 * * 1-5" = weekdays at 9 AM)
+- \`recurring\`: fixed interval loop (e.g. every 6 hours)
+- \`delayed\`: one-time delayed execution
 `;
 
 export const opencronPlugin: Plugin = async () => {
@@ -121,7 +121,7 @@ export const opencronPlugin: Plugin = async () => {
         async config(cfg) {
             cfg.agent = cfg.agent ?? {};
             cfg.agent["opencron-runner"] = {
-                description: "opencron 任务执行器 - 从任务队列获取任务并派发给子 Agent 执行",
+                description: "opencron task executor - fetches tasks from the queue and dispatches them to sub-agents",
                 mode: "all",
                 hidden: true,
                 prompt: RUNNER_PROMPT,
@@ -139,25 +139,25 @@ export const opencronPlugin: Plugin = async () => {
         },
 
         tool: {
-            // 创建任务
+            // create task
             opencron_add: tool({
                 description:
-                    "创建新任务到队列。返回任务 ID。任务将按优先级（importance × urgency）排序执行。",
+                    "Create a new task in the queue. Returns the task ID. Tasks are sorted by priority (importance x urgency).",
                 args: {
-                    name: tool.schema.string().describe("任务名称（人类可读）"),
-                    agent: tool.schema.string().describe("执行的 Agent 名称，如 localize-gen, course-gen"),
-                    prompt: tool.schema.string().describe("发送给 Agent 的完整提示词"),
-                    model: tool.schema.string().optional().describe("使用的模型，如 gemini-2.5-pro"),
-                    category: tool.schema.string().optional().describe("任务分类：translate/generate/review/test/general"),
-                    importance: tool.schema.number().optional().describe("重要程度 1-5（5 最重要）"),
-                    urgency: tool.schema.number().optional().describe("紧急程度 1-5（5 最紧急）"),
-                    batchId: tool.schema.string().optional().describe("批次 ID，用于分组管理"),
-                    dependsOn: tool.schema.number().optional().describe("依赖的任务 ID，该任务完成后才会执行"),
+                    name: tool.schema.string().describe("Task name (human-readable)"),
+                    agent: tool.schema.string().describe("Agent name to execute, e.g. localize-gen, course-gen"),
+                    prompt: tool.schema.string().describe("Full prompt to send to the agent"),
+                    model: tool.schema.string().optional().describe("Model to use, e.g. gemini-2.5-pro"),
+                    category: tool.schema.string().optional().describe("Task category: translate/generate/review/test/general"),
+                    importance: tool.schema.number().optional().describe("Importance 1-5 (5 = most important)"),
+                    urgency: tool.schema.number().optional().describe("Urgency 1-5 (5 = most urgent)"),
+                    batchId: tool.schema.string().optional().describe("Batch ID for grouping"),
+                    dependsOn: tool.schema.number().optional().describe("Dependency task ID; will only execute after this task completes"),
                     cwd: tool.schema
                         .string()
                         .optional()
                         .describe(
-                            "(已废弃) 工作目录。系统会自动记录提交任务时的 opencode run 启动目录。"
+                            "(deprecated) Working directory. The opencode run startup directory is auto-recorded."
                         ),
                 },
                 async execute(args) {
@@ -185,15 +185,15 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 获取下一条任务
+            // get next task
             opencron_next: tool({
                 description:
-                    "获取下一个待执行的任务。优先处理可重试的失败任务（retryCount < maxRetries），再处理 pending 任务，均按创建时间升序排列，会自动跳过依赖未完成的任务。",
+                    "Get the next pending task. Prioritizes retryable failed tasks (retryCount < maxRetries), then pending tasks, both sorted by creation time ascending. Automatically skips tasks with unmet dependencies.",
                 args: {
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只返回该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope results to that project"),
                 },
                 async execute(args) {
                     try {
@@ -222,15 +222,15 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 开始执行任务
+            // start task execution
             opencron_start: tool({
-                description: "标记任务为正在执行（running）。记录开始时间。",
+                description: "Mark a task as running. Records the start time.",
                 args: {
-                    id: tool.schema.number().describe("任务 ID"),
+                    id: tool.schema.number().describe("Task ID"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只操作该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope the operation to that project"),
                 },
                 async execute(args) {
                     try {
@@ -238,8 +238,8 @@ export const opencronPlugin: Plugin = async () => {
                         const task = await TaskService.start(args.id, { cwd: scopeCwd });
                         if (task) return JSON.stringify({ id: task.id, status: task.status });
 
-                        // start() 只会把 pending -> running。
-                        // 当返回 null 时，需要区分：任务不存在 vs 任务存在但状态不允许 start。
+                        // start() only transitions pending -> running.
+                        // When null is returned, distinguish between: task not found vs task exists but status does not allow start.
                         const existing = await TaskService.getById(args.id, { cwd: scopeCwd });
                         if (!existing) return JSON.stringify({ error: "Task not found" });
 
@@ -257,16 +257,16 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 完成任务
+            // complete task
             opencron_done: tool({
-                description: "标记任务完成（done）。记录结束时间和结果日志。",
+                description: "Mark a task as done. Records the end time and result log.",
                 args: {
-                    id: tool.schema.number().describe("任务 ID"),
-                    log: tool.schema.string().optional().describe("执行结果日志"),
+                    id: tool.schema.number().describe("Task ID"),
+                    log: tool.schema.string().optional().describe("Execution result log"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只操作该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope the operation to that project"),
                 },
                 async execute(args) {
                     try {
@@ -285,16 +285,16 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 任务失败
+            // task failed
             opencron_fail: tool({
-                description: "标记任务失败（failed）。记录错误日志，自动增加重试计数。",
+                description: "Mark a task as failed. Records the error log and increments retry count.",
                 args: {
-                    id: tool.schema.number().describe("任务 ID"),
-                    log: tool.schema.string().optional().describe("错误日志"),
+                    id: tool.schema.number().describe("Task ID"),
+                    log: tool.schema.string().optional().describe("Error log"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只操作该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope the operation to that project"),
                 },
                 async execute(args) {
                     try {
@@ -317,15 +317,15 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 查看统计
+            // view statistics
             opencron_status: tool({
-                description: "查看任务队列统计。可按批次筛选。",
+                description: "View task queue statistics. Can be filtered by batch.",
                 args: {
-                    batchId: tool.schema.string().optional().describe("按批次筛选"),
+                    batchId: tool.schema.string().optional().describe("Filter by batch ID"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只统计该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope stats to that project"),
                 },
                 async execute(args) {
                     try {
@@ -340,17 +340,17 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 重试失败任务
+            // retry failed tasks
             opencron_retry: tool({
                 description:
-                    "重试失败的任务。将 failed 状态重置为 pending，自动清除开始/结束时间。",
+                    "Retry a failed task. Resets status from failed to pending, clears start/end times.",
                 args: {
-                    id: tool.schema.number().optional().describe("任务 ID"),
-                    batchId: tool.schema.string().optional().describe("批次 ID（批量重试）"),
+                    id: tool.schema.number().optional().describe("Task ID"),
+                    batchId: tool.schema.string().optional().describe("Batch ID (batch retry)"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只操作该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope the operation to that project"),
                 },
                 async execute(args) {
                     try {
@@ -376,19 +376,19 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 列出最近任务
+            // list recent tasks
             opencron_list: tool({
-                description: "列出最近的任务。支持按状态筛选，按创建时间倒序。",
+                description: "List recent tasks, sorted by creation time descending. Supports status filtering.",
                 args: {
                     status: tool.schema
                         .string()
                         .optional()
-                        .describe("按状态筛选：pending/running/done/failed/cancelled"),
-                    limit: tool.schema.number().optional().describe("返回数量，默认 20"),
+                        .describe("Filter by status: pending/running/done/failed/cancelled"),
+                    limit: tool.schema.number().optional().describe("Number of results, default 20"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只返回该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope results to that project"),
                 },
                 async execute(args) {
                     try {
@@ -407,15 +407,15 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 获取指定任务详情
+            // get task details by ID
             opencron_get: tool({
-                description: "获取指定 ID 的任务详情。",
+                description: "Get task details by ID.",
                 args: {
-                    id: tool.schema.number().describe("任务 ID"),
+                    id: tool.schema.number().describe("Task ID"),
                     cwd: tool.schema
                         .string()
                         .optional()
-                        .describe("项目隔离：传入当前工作目录，只返回该项目的任务"),
+                        .describe("Project isolation: pass the current working directory to scope results to that project"),
                 },
                 async execute(args) {
                     try {
@@ -443,30 +443,30 @@ export const opencronPlugin: Plugin = async () => {
                 },
             }),
 
-            // 创建调度模板
+            // create schedule template
             opencron_schedule: tool({
                 description:
-                    "创建调度模板，用于定时/延迟/循环执行任务。支持 cron 表达式、一次性延迟和固定间隔循环。Gateway 会按模板自动生成任务到队列。",
+                    "Create a schedule template for cron/delayed/recurring task execution. Supports cron expressions, one-time delays, and fixed-interval loops. Gateway will auto-generate tasks from the template.",
                 args: {
-                    name: tool.schema.string().describe("模板名称"),
-                    agent: tool.schema.string().describe("执行的 Agent 名称"),
-                    prompt: tool.schema.string().describe("发送给 Agent 的完整提示词"),
-                    model: tool.schema.string().optional().describe("使用的模型"),
-                    category: tool.schema.string().optional().describe("任务分类：translate/generate/review/test/general"),
-                    importance: tool.schema.number().optional().describe("重要程度 1-5"),
-                    urgency: tool.schema.number().optional().describe("紧急程度 1-5"),
-                    batchId: tool.schema.string().optional().describe("模板生成的任务归属的批次 ID"),
+                    name: tool.schema.string().describe("Template name"),
+                    agent: tool.schema.string().describe("Agent name to execute"),
+                    prompt: tool.schema.string().describe("Full prompt to send to the agent"),
+                    model: tool.schema.string().optional().describe("Model to use"),
+                    category: tool.schema.string().optional().describe("Task category: translate/generate/review/test/general"),
+                    importance: tool.schema.number().optional().describe("Importance 1-5"),
+                    urgency: tool.schema.number().optional().describe("Urgency 1-5"),
+                    batchId: tool.schema.string().optional().describe("Batch ID for tasks generated from this template"),
                     schedule: tool.schema
                         .object({
-                            type: tool.schema.enum(["cron", "delayed", "recurring"]).describe("调度类型"),
-                            cron_expr: tool.schema.string().optional().describe("cron 表达式（cron 类型必填，如 '0 9 * * 1-5'）"),
-                            delay: tool.schema.string().optional().describe("延迟时间（delayed 类型必填），友好格式如 '30s' '5min' '1h' '2d'，也支持 ISO 8601 duration 如 'PT30M'"),
-                            interval: tool.schema.string().optional().describe("循环间隔（recurring 类型必填），友好格式如 '1h' '30min' '5s'，也支持 ISO 8601 duration 如 'PT1H'"),
+                            type: tool.schema.enum(["cron", "delayed", "recurring"]).describe("Schedule type"),
+                            cron_expr: tool.schema.string().optional().describe("Cron expression (required for cron type, e.g. '0 9 * * 1-5')"),
+                            delay: tool.schema.string().optional().describe("Delay duration (required for delayed type), friendly formats like '30s' '5min' '1h' '2d', also ISO 8601 duration like 'PT30M'"),
+                            interval: tool.schema.string().optional().describe("Recurring interval (required for recurring type), friendly formats like '1h' '30min' '5s', also ISO 8601 duration like 'PT1H'"),
                         })
-                        .describe("调度配置"),
-                    max_instances: tool.schema.number().optional().describe("最大并发实例数，默认 1"),
-                    max_retries: tool.schema.number().optional().describe("克隆给 task 的最大重试次数，默认 3"),
-                    retry_backoff_ms: tool.schema.number().optional().describe("克隆给 task 的退避基础间隔 ms，默认 30000"),
+                        .describe("Schedule configuration"),
+                    max_instances: tool.schema.number().optional().describe("Max concurrent instances, default 1"),
+                    max_retries: tool.schema.number().optional().describe("Max retries cloned to tasks, default 3"),
+                    retry_backoff_ms: tool.schema.number().optional().describe("Backoff base interval ms cloned to tasks, default 30000"),
                 },
                 async execute(args) {
                     try {
@@ -527,7 +527,7 @@ export const opencronPlugin: Plugin = async () => {
 
             opencron_upgrade: tool({
                 description:
-                    "升级 opencron 插件。先通过 npm 更新插件包到最新版本，然后重启 Gateway 进程。当用户说'升级插件'、'更新 opencron'、'upgrade'时使用。",
+                    "Upgrade the opencron plugin. Updates the npm package to the latest version, then restarts the Gateway process. Use when the user says 'upgrade plugin', 'update opencron', or 'upgrade'.",
                 args: {},
                 async execute() {
                     try {
@@ -555,7 +555,7 @@ export const opencronPlugin: Plugin = async () => {
                             before: result.before,
                             after: result.after,
                             restarted: result.restarted,
-                            message: `opencron 已从 ${result.before ?? "unknown"} 升级到 ${result.after}，Gateway 已重启。请重启 opencode 以加载新版插件。`,
+                            message: `opencron upgraded from ${result.before ?? "unknown"} to ${result.after}, Gateway restarted. Please restart opencode to load the new plugin.`,
                         });
                     } catch (error) {
                         return JSON.stringify({

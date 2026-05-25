@@ -36,7 +36,7 @@ export class Watchdog {
     private async runHeartbeatCheck() {
         if (this.stopped) return;
         try {
-            await checkHeartbeats(this.cfg.watchdog.heartbeatTimeoutMs);
+            await checkHeartbeats(this.cfg.watchdog.heartbeatTimeoutMs, this.cfg.notifications, this.cfg.dashboard.port);
         } catch (err) {
             console.error(JSON.stringify({
                 ts: new Date().toISOString(),

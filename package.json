@@ -1,7 +1,7 @@
 {
     "name": "opencode-opencron",
     "version": "0.1.7",
-    "description": "Headless task scheduler for OpenCode agents — schedule, retry, and manage batch jobs with SQLite",
+    "description": "Headless task scheduler for OpenCode agents — schedule, retry, manage batch jobs, and receive notifications via Telegram, Discord, Slack, Email, and Webhook.",
     "type": "module",
     "main": "dist/plugin/opencron.js",
     "types": "dist/plugin/opencron.d.ts",

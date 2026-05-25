@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.5](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.4...v0.1.5) (2026-05-25)
+
+
+### Features
+
+* add notification channels and auto-refresh dashboard ([17f3768](https://github.com/bmesquitadev/opencode-opencron/commit/17f376866aa6dbf0bb0246835dc3150d6be18932))
+
 ## [0.1.4](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.3...v0.1.4) (2026-05-25)
 
 

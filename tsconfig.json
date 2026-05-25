@@ -45,7 +45,8 @@
     "include": [
         "src/**/*",
         "plugin/**/*",
-        "scripts/**/*"
+        "scripts/**/*",
+        "tests/**/*"
     ],
     "exclude": [
         "node_modules",

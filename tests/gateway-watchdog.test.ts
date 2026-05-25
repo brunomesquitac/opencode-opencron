@@ -4,6 +4,13 @@ import { checkHeartbeats } from '../src/gateway/watchdog/heartbeat';
 import { cleanupOldRecords } from '../src/gateway/watchdog/cleanup';
 import { TaskService } from '../src/core/services/task.service';
 import { TaskRunService } from '../src/core/services/task-run.service';
+import type { ChannelName } from '../src/gateway/channels/channel.interface';
+
+const defaultNotifications = {
+    enabled: false,
+    defaults: { on_success: [] as ChannelName[], on_failure: [] as ChannelName[], on_dead_letter: [] as ChannelName[] },
+    channels: {},
+};
 
 async function createTask(overrides: Record<string, unknown> = {}) {
     return TaskService.add({
@@ -20,7 +27,7 @@ describe('checkHeartbeats', () => {
     });
 
     test('do nothing when no stale run', async () => {
-        await checkHeartbeats(-100000);
+        await checkHeartbeats(-100000, defaultNotifications);
     });
 
     test('detect stale run and mark as dead_letter (max retries reached)', async () => {
@@ -28,7 +35,7 @@ describe('checkHeartbeats', () => {
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
 
-        await checkHeartbeats(-100000);
+        await checkHeartbeats(-100000, defaultNotifications);
 
         const updatedTask = await TaskService.getById(task.id);
         expect(updatedTask!.status).toBe('dead_letter');
@@ -39,7 +46,7 @@ describe('checkHeartbeats', () => {
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
 
-        await checkHeartbeats(-100000);
+        await checkHeartbeats(-100000, defaultNotifications);
 
         const updatedTask = await TaskService.getById(task.id);
         expect(updatedTask!.status).toBe('pending');
@@ -52,7 +59,7 @@ describe('checkHeartbeats', () => {
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
 
-        await checkHeartbeats(-100000);
+        await checkHeartbeats(-100000, defaultNotifications);
 
         let updatedTask = await TaskService.getById(task.id);
         expect(updatedTask!.status).toBe('pending');
@@ -61,7 +68,7 @@ describe('checkHeartbeats', () => {
         await TaskService.start(task.id);
         await TaskRunService.create({ taskId: task.id, status: 'running' });
 
-        await checkHeartbeats(-100000);
+        await checkHeartbeats(-100000, defaultNotifications);
 
         updatedTask = await TaskService.getById(task.id);
         expect(updatedTask!.status).toBe('dead_letter');
@@ -73,7 +80,7 @@ describe('checkHeartbeats', () => {
         await TaskService.start(task.id);
         const run = await TaskRunService.create({ taskId: task.id, status: 'running' });
 
-        await checkHeartbeats(-100000);
+        await checkHeartbeats(-100000, defaultNotifications);
 
         const updatedRun = await TaskRunService.getById(run.id);
         expect(updatedRun!.status).toBe('failed');

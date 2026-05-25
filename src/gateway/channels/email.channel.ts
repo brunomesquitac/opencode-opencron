@@ -79,7 +79,7 @@ export const emailChannel: ChannelHandler = {
 
     async send(payload: NotificationPayload, config: Record<string, unknown>): Promise<SendResult> {
         const cfg = config as unknown as EmailConfig;
-        const subject = `[OpenCron] ${payload.event === 'done' ? '✅' : payload.event === 'failed' ? '❌' : '💀'} ${payload.task.name} — ${payload.event === 'done' ? 'Completed' : payload.event === 'failed' ? 'Failed' : 'Dead Letter'}`;
+        const subject = `[OC - Task #${payload.task.id}] ${payload.event === 'done' ? '✅' : payload.event === 'failed' ? '❌' : '💀'} ${payload.task.name} — ${payload.event === 'done' ? 'Completed' : payload.event === 'failed' ? 'Failed' : 'Dead Letter'}`;
 
         try {
             const nodemailer = await getNodemailer();

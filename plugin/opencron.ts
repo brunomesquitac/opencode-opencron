@@ -531,16 +531,24 @@ export const opencronPlugin: Plugin = async () => {
                 args: {},
                 async execute() {
                     try {
-                        const { execSync } = await import("child_process");
+                        const { spawnSync } = await import("child_process");
                         const configDir = `${homedir()}/.config/opencode`;
+
+                        function resolveBin(name: string): string {
+                            try { const r = Bun.which(name); if (r) return r; } catch {}
+                            return name;
+                        }
+                        const npmPath = resolveBin(process.platform === "win32" ? "npm.cmd" : "npm");
 
                         console.log("[opencron] Updating npm package...");
                         try {
-                            execSync("npm install opencode-opencron@latest", {
+                            const r = spawnSync(npmPath, ["install", "opencode-opencron@latest"], {
                                 cwd: configDir,
                                 stdio: "pipe",
                                 timeout: 60000,
+                                windowsHide: true,
                             });
+                            if (r.status !== 0) throw new Error(r.stderr?.toString() || "npm install failed");
                         } catch (npmErr) {
                             return JSON.stringify({
                                 success: false,

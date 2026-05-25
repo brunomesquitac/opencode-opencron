@@ -52,7 +52,7 @@ describe('deepMerge', () => {
     });
 
     test('new fields are added', () => {
-        const base = { a: 1 };
+        const base = { a: 1 } as Record<string, unknown>;
         const result = deepMerge(base, { b: 2 });
         expect(result.a).toBe(1);
         expect(result.b).toBe(2);

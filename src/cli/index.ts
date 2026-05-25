@@ -379,7 +379,7 @@ program
         try {
             const { execSync } = await import('child_process');
             const cmd = process.platform === 'win32' ? `start ${url}` : process.platform === 'darwin' ? `open ${url}` : `xdg-open ${url}`;
-            execSync(cmd, { stdio: 'ignore' });
+            execSync(cmd, { stdio: 'ignore', windowsHide: true });
         } catch {}
     });
 
@@ -435,20 +435,26 @@ program
     .command('upgrade')
     .description('Update npm package and restart Gateway')
     .action(async () => {
-        const { execSync } = await import('child_process');
+        const { spawnSync } = await import('child_process');
         const { homedir } = await import('os');
         const { join } = await import('path');
         const configDir = join(homedir(), '.config/opencode');
 
+        function resolveBin(name: string): string {
+            try { const r = Bun.which(name); if (r) return r; } catch {}
+            return name;
+        }
+        const npmPath = resolveBin(process.platform === 'win32' ? 'npm.cmd' : 'npm');
+
         console.log('Updating opencode-opencron...');
-        try {
-            execSync('npm install opencode-opencron@latest', {
-                cwd: configDir,
-                stdio: 'inherit',
-                timeout: 60000,
-            });
-        } catch (err) {
-            console.error('npm install failed:', err instanceof Error ? err.message : String(err));
+        const npmResult = spawnSync(npmPath, ['install', 'opencode-opencron@latest'], {
+            cwd: configDir,
+            stdio: 'inherit',
+            timeout: 60000,
+            windowsHide: true,
+        });
+        if (npmResult.status !== 0) {
+            console.error('npm install failed (exit code ' + npmResult.status + ')');
             console.error('Try manually: cd ~/.config/opencode && npm install opencode-opencron@latest');
             process.exit(1);
         }

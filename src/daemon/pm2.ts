@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import { resolve, join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -8,6 +8,35 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const GATEWAY_ENTRY = join(__dirname, "../gateway/index.js");
 const PROCESS_NAME = "opencron-gateway";
 const VERSION_FILE = join(homedir(), ".local/share/opencode/opencron-gateway-version");
+
+function resolveBin(name: string): string {
+    try {
+        const resolved = Bun.which(name);
+        if (resolved) return resolved;
+    } catch {}
+    return name;
+}
+
+const pm2BinPath = resolveBin(process.platform === "win32" ? "pm2.cmd" : "pm2");
+const npmBinPath = resolveBin(process.platform === "win32" ? "npm.cmd" : "npm");
+
+function isCmdScript(binPath: string): boolean {
+    if (process.platform !== "win32") return false;
+    const lower = binPath.toLowerCase();
+    return lower.endsWith('.cmd') || lower.endsWith('.bat');
+}
+
+function spawnWinCmd(binPath: string, args: string[], options: import("child_process").SpawnSyncOptions): { status: number | null; stdout: string; stderr: string } {
+    const opts = { ...options, encoding: "utf-8" as const, windowsHide: true };
+    let result: import("child_process").SpawnSyncReturns<string>;
+    if (isCmdScript(binPath)) {
+        const quoted = args.map(a => a.includes(' ') ? `"${a}"` : a);
+        result = spawnSync('cmd.exe', ['/d', '/c', binPath, ...quoted], { ...opts, shell: false });
+    } else {
+        result = spawnSync(binPath, args, opts);
+    }
+    return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+}
 
 function getPackageVersion(): string {
     try {
@@ -34,15 +63,10 @@ function writeRunningVersion(version: string): void {
     } catch {}
 }
 
-function pm2Bin(): string {
-    return process.platform === "win32" ? "pm2.cmd" : "pm2";
-}
-
 function isPm2Installed(): boolean {
     try {
-        const cmd = process.platform === "win32" ? "where pm2" : "which pm2";
-        execSync(cmd, { stdio: "pipe" });
-        return true;
+        const resolved = Bun.which(process.platform === "win32" ? "pm2.cmd" : "pm2");
+        return !!resolved;
     } catch {
         return false;
     }
@@ -51,12 +75,17 @@ function isPm2Installed(): boolean {
 function installPm2(): boolean {
     console.log("[opencron] Installing pm2...");
     try {
-        execSync("npm install -g pm2", { stdio: "inherit" });
-        return true;
+        const result = spawnWinCmd(npmBinPath, ["install", "-g", "pm2"], {
+            stdio: "inherit",
+        });
+        return result.status === 0;
     } catch {
         try {
-            execSync("bun install -g pm2", { stdio: "inherit" });
-            return true;
+            const result = spawnSync("bun", ["install", "-g", "pm2"], {
+                stdio: "inherit",
+                windowsHide: true,
+            });
+            return result.status === 0;
         } catch {
             return false;
         }
@@ -64,13 +93,10 @@ function installPm2(): boolean {
 }
 
 function pm2Exec(args: string[]): { ok: boolean; output: string } {
-    const bin = pm2Bin();
-    const isWin = process.platform === "win32";
     try {
-        const result = spawnSync(bin, isWin ? args.map(a => a.includes(' ') ? `"${a}"` : a) : args, {
+        const result = spawnWinCmd(pm2BinPath, args, {
             stdio: ["pipe", "pipe", "pipe"],
             encoding: "utf-8",
-            shell: isWin,
         });
         const output = (result.stdout ?? "") + (result.stderr ?? "");
         return { ok: result.status === 0, output };
@@ -97,12 +123,7 @@ export function isGatewayRunning(): boolean {
 }
 
 function findBunPath(): string {
-    try {
-        const cmd = process.platform === "win32" ? "where bun" : "which bun";
-        return execSync(cmd, { stdio: "pipe" }).toString().trim().split("\n")[0];
-    } catch {
-        return process.execPath;
-    }
+    return process.execPath;
 }
 
 function pm2StartGateway(version: string): { ok: boolean; output: string } {
@@ -238,10 +259,17 @@ export function ensureGateway(): void {
     if (!isPm2Installed()) {
         console.log("[opencron] Installing pm2 for Gateway process management...");
         try {
-            execSync("npm install -g pm2", { stdio: "pipe" });
+            const r = spawnWinCmd(npmBinPath, ["install", "-g", "pm2"], {
+                stdio: "pipe",
+            });
+            if (r.status !== 0) throw new Error("npm install failed");
         } catch {
             try {
-                execSync("bun install -g pm2", { stdio: "pipe" });
+                const r = spawnSync("bun", ["install", "-g", "pm2"], {
+                    stdio: "pipe",
+                    windowsHide: true,
+                });
+                if (r.status !== 0) throw new Error("bun install failed");
             } catch {
                 console.warn("[opencron] Could not install pm2. Gateway will not auto-start. Run \`opencron install\` manually.");
                 return;

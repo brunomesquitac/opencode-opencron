@@ -6,6 +6,7 @@ export const ptBR = {
   'nav.scheduledTasks': 'Tarefas Agendadas',
   'nav.executionLogs': 'Logs de Execução',
   'nav.systemStatus': 'Status do Sistema',
+  'nav.notifications': 'Notificações',
 
   'btn.newTask': '+ Nova Tarefa',
   'btn.refresh': 'Atualizar',

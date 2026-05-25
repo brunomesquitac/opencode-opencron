@@ -338,6 +338,7 @@ function toggleLog(id){const el=document.getElementById('log-'+id);el.style.disp
 
 async function cloneTask(id){
   try{
+    if(activeChannels.length===0)await loadActiveChannels();
     const [rTask, rAgents] = await Promise.all([
       fetch('/api/tasks/'+id),
       fetch('/api/agents'),
@@ -362,6 +363,14 @@ async function cloneTask(id){
     document.getElementById('et-stars-im').querySelector('input[type=hidden]').value=t.importance||3;
     document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value=t.urgency||3;
     initStars('et-stars-im');initStars('et-stars-ur');
+    document.getElementById('etc-notify-section').innerHTML=modalNotifyHtml('etc');
+    modalBuildNotifyTable('etc');
+    if(t.notifyOn){
+      var etcNo=typeof t.notifyOn==='string'?JSON.parse(t.notifyOn):t.notifyOn;
+      document.querySelector('input[name="etc-notify-mode"][value="custom"]').checked=true;
+      modalNotifyToggle('etc');
+      modalSetNotifyChecks('etc',etcNo);
+    }
     document.getElementById('et-modal').showModal();
   }catch(e){alert(_tf('alert.failedLoadTask',e.message));}
 }
@@ -387,6 +396,8 @@ async function saveCloneTask(){
     urgency:parseInt(document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value)||3,
   };
   if(!data.name||!data.agent||!data.prompt){alert(_t('alert.requiredFields'));return;}
+  var etcMode=document.querySelector('input[name="etc-notify-mode"]:checked');
+  if(etcMode&&etcMode.value==='custom'){data.notifyOn=modalGetNotifyChannels('etc');}
   try{
     const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const d=await r.json();
@@ -397,6 +408,7 @@ async function saveCloneTask(){
 
 async function editTemplate(id){
   try{
+    if(activeChannels.length===0)await loadActiveChannels();
     const [rTmpl, rAgents, rModels]=await Promise.all([
       fetch('/api/templates/'+id),
       fetch('/api/agents'),
@@ -433,6 +445,14 @@ async function editTemplate(id){
     document.getElementById('etm-intervalunit').value=t.intervalMs?(t.intervalMs%86400000===0?'days':t.intervalMs%3600000===0?'hours':'minutes'):'hours';
     document.getElementById('etm-delayval').value=t.runAt?Math.floor(Math.max((t.runAt-Date.now())/60000,1))||30:30;
     t.enabled?document.getElementById('etm-status').textContent=_t('status.enabled'):document.getElementById('etm-status').textContent=_t('status.disabled');
+    document.getElementById('etm-notify-section').innerHTML=modalNotifyHtml('etm');
+    modalBuildNotifyTable('etm');
+    if(t.notifyOn){
+      var etmNo=typeof t.notifyOn==='string'?JSON.parse(t.notifyOn):t.notifyOn;
+      document.querySelector('input[name="etm-notify-mode"][value="custom"]').checked=true;
+      modalNotifyToggle('etm');
+      modalSetNotifyChecks('etm',etmNo);
+    }
     editTmplToggleFields();
     document.getElementById('etm-modal').showModal();
   }catch(e){alert(_tf('alert.failedLoadTemplate',e.message));}
@@ -591,6 +611,14 @@ async function createTask(){
     urgency:parseInt(f.ur.value)||3,
     maxRetries:parseInt(f.mr.value)||3,
   };
+  if(f.notify_mode && f.notify_mode.value==='custom'){
+    var notifyOn = {
+      on_success: getCheckedNotifyChannels('on_success'),
+      on_failure: getCheckedNotifyChannels('on_failure'),
+      on_dead_letter: getCheckedNotifyChannels('on_dead_letter'),
+    };
+    data.notifyOn = notifyOn;
+  }
   if(!data.name||!data.agent||!data.prompt){alert(_t('alert.requiredFields'));return;}
 
   var mode=f.sch_mode.value;
@@ -772,6 +800,7 @@ function modalNotifyHtml(prefix){
     <a href="/templates" class="${activeTab === 'templates' ? 'active' : ''}">${esc(_tr(T, 'nav.scheduledTasks'))}</a>
     <a href="/runs" class="${activeTab === 'runs' ? 'active' : ''}">${esc(_tr(T, 'nav.executionLogs'))}</a>
     <a href="/system" class="${activeTab === 'system' ? 'active' : ''}">${esc(_tr(T, 'nav.systemStatus'))}</a>
+    <a href="/notifications" class="${activeTab === 'notifications' ? 'active' : ''}">${esc(_tr(T, 'nav.notifications'))}</a>
   </nav>
   <main id="page-content">${body}</main>
 </div>
@@ -1768,8 +1797,14 @@ app.get('/notifications', async (c) => {
         async function testChannel(name) {
           var resultEl = document.getElementById('test-' + name + '-result');
           resultEl.innerHTML = '<span style="color:var(--yellow)">Testing...</span>';
+          var cfg = {};
+          if(name==='telegram'){cfg.botToken=document.getElementById('tgb-token').value;cfg.chatId=document.getElementById('tgb-chat').value;}
+          else if(name==='discord'){cfg.webhookUrl=document.getElementById('dsc-url').value;}
+          else if(name==='slack'){cfg.webhookUrl=document.getElementById('slk-url').value;}
+          else if(name==='email'){cfg.host=document.getElementById('eml-host').value;cfg.port=parseInt(document.getElementById('eml-port').value)||587;cfg.user=document.getElementById('eml-user').value;cfg.pass=document.getElementById('eml-pass').value;cfg.from=document.getElementById('eml-from').value;cfg.to=document.getElementById('eml-to').value;}
+          else if(name==='webhook'){cfg.url=document.getElementById('whk-url').value;}
           try {
-            var r = await fetch('/api/notifications/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: name }) });
+            var r = await fetch('/api/notifications/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: name, config: cfg }) });
             var d = await r.json();
             if (d.success) {
               resultEl.innerHTML = '<span style="color:var(--green)">Test sent successfully!</span>';
@@ -1892,6 +1927,7 @@ app.put('/api/tasks/:id', async (c) => {
             importance: body.importance !== undefined ? Number(body.importance) : undefined,
             urgency: body.urgency !== undefined ? Number(body.urgency) : undefined,
             maxRetries: body.maxRetries !== undefined ? Number(body.maxRetries) : undefined,
+            notifyOn: body.notifyOn ? JSON.stringify(body.notifyOn) : undefined,
         });
         if (!result) return c.json({ success: false, error: 'not found' }, 404);
         return c.json({ success: true });
@@ -2025,6 +2061,9 @@ app.post('/api/notifications/test', async (c) => {
             return c.json({ success: false, error: 'channel is required' }, 400);
         }
         const config = loadConfig();
+        if (body.config) {
+            config.notifications.channels[channel] = body.config as any;
+        }
         const result = await sendTestNotification(channel, config.notifications);
         return c.json({ success: result.ok, error: result.error, channel });
     } catch (err) {

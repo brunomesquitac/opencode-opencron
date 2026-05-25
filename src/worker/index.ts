@@ -14,6 +14,16 @@ interface OpencodeServer {
     close(): void;
 }
 
+function resolveBin(name: string): string {
+    try {
+        const resolved = Bun.which(name);
+        if (resolved) return resolved;
+    } catch {}
+    return name;
+}
+
+const opencodeBin = resolveBin('opencode');
+
 function readDefaultModel(): string | null {
     try {
         const configPath = join(homedir(), '.config/opencode/opencode.jsonc');
@@ -33,11 +43,11 @@ function spawnOpencodeServer(cwd: string | null | undefined, signal: AbortSignal
         if (defaultModel) {
             configContent.model = defaultModel;
         }
-        const proc = spawn('opencode', ['serve', '--hostname=127.0.0.1', '--port=0'], {
+        const proc = spawn(opencodeBin, ['serve', '--hostname=127.0.0.1', '--port=0'], {
             cwd: cwd || undefined,
             env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(configContent) },
             windowsHide: true,
-            shell: process.platform === 'win32',
+            shell: false,
         });
 
         let output = '';
@@ -233,7 +243,7 @@ export class WorkerEngine {
         let sessionId: string = '';
         try {
             const session = await client.session.create({
-                body: { title: `[OpenCron] ${task.name}` },
+                body: { title: `[OC - Task #${task.id}] ${task.name}` },
                 query: { directory: task.cwd || undefined },
             });
             sessionId = session.data.id;

@@ -2,10 +2,10 @@ const { spawn } = require('child_process');
 const path = require('path');
 const cwd = path.resolve(__dirname);
 
-const child = spawn('bun', ['run', 'scripts/gateway.mjs'], {
+const child = spawn(process.execPath, ['run', 'scripts/gateway.mjs'], {
     cwd,
     stdio: 'inherit',
-    shell: true,
+    windowsHide: true,
 });
 
 child.on('exit', (code) => process.exit(code ?? 1));

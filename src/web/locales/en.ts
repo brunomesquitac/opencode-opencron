@@ -6,6 +6,7 @@ export const en = {
   'nav.scheduledTasks': 'Scheduled Tasks',
   'nav.executionLogs': 'Execution Logs',
   'nav.systemStatus': 'System Status',
+  'nav.notifications': 'Notifications',
 
   'btn.newTask': '+ New Task',
   'btn.refresh': 'Refresh',

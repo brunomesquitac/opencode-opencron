@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.4](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.3...v0.1.4) (2026-05-25)
+
+
+### Features
+
+* dashboard task editing, template editing, and task cloning ([659e6b9](https://github.com/bmesquitadev/opencode-opencron/commit/659e6b910e78a7e0cde0de1997add4e5630ce26e))
+
 ## [0.1.3](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.2...v0.1.3) (2026-05-25)
 
 

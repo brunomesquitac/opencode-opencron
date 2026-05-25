@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file. See [commit
 ### Bug Fixes
 
 * prevent auto-refresh from clearing unsaved form data ([83b0a38](https://github.com/bmesquitadev/opencode-opencron/commit/83b0a3858122cd2703b1be66fa30cd218743282a))
+* auto-refresh skips when input/textarea/select has focus (activeElement check)
+* auto-refresh skips on form pages (/new, /system, /notifications)
+* auto-refresh skips when modal dialog is open
+
+### Features
+
+* i18n support with locale files (en, pt-BR) and client-side translation helpers
+* translated all dashboard UI strings (navigation, buttons, alerts, status labels)
 
 ## [0.1.5](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.4...v0.1.5) (2026-05-25)
 

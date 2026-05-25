@@ -8,6 +8,15 @@ All notable changes to this project will be documented in this file. See [commit
 ### Features
 
 * add token usage and cost tracking with time-range dashboard filter ([742ad2e](https://github.com/bmesquitadev/opencode-opencron/commit/742ad2e1acd5914042d43445ed2a8af2f1fceab1))
+* extract and persist tools/skills used per run (tools_used, skills_used columns)
+* centralize agent/model/config resolution in opencode-config module
+* gateway: auto port fallback when 4680 is in use (scans 4680-4779)
+* dashboard: time range filter (24h/7d/30d/All) on Task Queue and Execution Logs
+* dashboard: cards for Total Cost, Total Tokens, Done, Failed (filtered by period)
+* dashboard: Tokens and Cost columns in runs table
+* dashboard: session view with tokens/cost in info bar
+* worker: extract token usage (input/output/total) and cost from SDK response
+* backfill script for existing records
 
 ## [0.1.2](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.1...v0.1.2) (2026-05-24)
 

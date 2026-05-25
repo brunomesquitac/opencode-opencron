@@ -23,6 +23,7 @@ export interface GatewayConfig {
     dashboard: {
         enabled: boolean;
         port: number;
+        locale: string;
     };
     logging: {
         level: string;
@@ -51,6 +52,7 @@ const DEFAULT_CONFIG: GatewayConfig = {
     dashboard: {
         enabled: true,
         port: 4680,
+        locale: 'en',
     },
     logging: {
         level: 'info',

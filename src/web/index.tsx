@@ -6,11 +6,13 @@ import { TaskRunService } from '@core/services/task-run.service';
 import { TaskTemplateService } from '@core/services/task-template.service';
 import { desc, sql, eq } from 'drizzle-orm';
 import { db, schema } from '@core/db';
-import { loadConfig, CONFIG_PATH, type GatewayConfig, expandEnvVars, getActiveChannels } from '@gateway/config';
+import { loadConfig, CONFIG_PATH, getActiveChannels, type GatewayConfig } from '@gateway/config';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { getAgents, getModels, listDirectories, listRootEntries, validatePath } from '@core/opencode-config';
 import type { AgentInfo, ModelInfo } from '@core/opencode-config';
+import { getTranslations } from './locales';
+import { t as _tr, formatClientTranslations } from './translate';
 import { healthCheckAll, sendTestNotification } from '@gateway/notifications/service';
 import type { ChannelName, NotificationsConfig } from '@gateway/channels/channel.interface';
 import { CHANNELS } from '@gateway/notifications/service';
@@ -118,19 +120,19 @@ function getRangeCutoff(range: string): number | null {
     }
 }
 
-function RangeBar(current: string, basePath: string, existingParams: string): string {
+function RangeBar(current: string, basePath: string, existingParams: string, T: Record<string, string>): string {
     const ranges = [
         { key: '24h', label: '24h' },
         { key: '7d', label: '7d' },
         { key: '30d', label: '30d' },
-        { key: '', label: 'All' },
+        { key: '', label: _tr(T, 'period.all') },
     ];
     const items = ranges.map(r => {
         const href = r.key ? basePath + '?range=' + r.key + (existingParams ? '&' + existingParams : '') : basePath + (existingParams ? '?' + existingParams : '');
         const active = (r.key === '' && !current) || r.key === current;
         return `<a href="${esc(href)}" class="btn ${active ? 'btn-primary' : ''}">${r.label}</a>`;
     }).join(' ');
-    return `<div style="margin-bottom:12px;display:flex;gap:6px;align-items:center"><span class="mu sm" style="margin-right:4px">Period:</span>${items}</div>`;
+    return `<div style="margin-bottom:12px;display:flex;gap:6px;align-items:center"><span class="mu sm" style="margin-right:4px">${esc(_tr(T, 'period.label'))}</span>${items}</div>`;
 }
 
 function timeAgo(ms: number | null): string {
@@ -152,10 +154,14 @@ function timeUntil(ms: number | null): string {
     return `${Math.floor(diff / 86400000)}d`;
 }
 
-function formatDate(ts: Date | number | null): string {
+function formatDate(ts: Date | number | null, locale: string = 'en'): string {
     if (!ts) return '-';
     const d = ts instanceof Date ? ts : new Date(ts);
-    return d.toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    try {
+        return d.toLocaleString(locale === 'pt-BR' ? 'pt-BR' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch {
+        return d.toLocaleString('en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
 }
 
 function esc(s: string | null | undefined): string {
@@ -303,34 +309,35 @@ const SHARED_STYLES = html`
 </style>
 `;
 
-function renderLayout(title: string, activeTab: string, body: string): string {
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title} - OpenCron</title>${SHARED_STYLES}
+function renderLayout(pageTitle: string, activeTab: string, body: string, T: Record<string, string>): string {
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(pageTitle)} - OpenCron</title>${SHARED_STYLES}
 <script>
+var __T = ${formatClientTranslations(T)};
+function _t(k){var m=__T[k];return m!==undefined?m:k;}
+function _tf(k){for(var _len=arguments.length,a=[],_key=1;_key<_len;_key++){a[_key-1]=arguments[_key];}var s=_t(k);for(var i=0;i<a.length;i++){s=s.split('{'+i+'}').join(a[i]);}return s;}
 var _arTimer=null,_arRefreshing=false;
 function _reExecScripts(c){Array.from(c.querySelectorAll('script')).forEach(function(s){var ns=document.createElement('script');if(s.src){ns.src=s.src;ns.async=false;}else{ns.textContent=s.textContent;}s.parentNode.replaceChild(ns,s);});}
-function smartRefresh(){if(_arRefreshing||document.querySelector('dialog[open]'))return;_arRefreshing=true;var u=location.pathname+location.search;fetch(u).then(function(r){return r.text();}).then(function(h){var p=new DOMParser(),d=p.parseFromString(h,'text/html'),nm=d.getElementById('page-content');if(!nm){_arRefreshing=false;return;}var om=document.getElementById('page-content'),sy=window.scrollY;om.outerHTML=nm.outerHTML;window.scrollTo(0,sy);_reExecScripts(document.getElementById('page-content'));_arRefreshing=false;}).catch(function(){_arRefreshing=false;});}
+function smartRefresh(){if(_arRefreshing)return;if(document.querySelector('dialog[open]'))return;var _p=location.pathname;if(_p==='/new'||_p==='/system'||_p.startsWith('/notifications'))return;var _a=document.activeElement;if(_a&&(_a.tagName==='INPUT'||_a.tagName==='TEXTAREA'||_a.tagName==='SELECT'))return;_arRefreshing=true;var u=_p+location.search;fetch(u).then(function(r){return r.text();}).then(function(h){var p=new DOMParser(),d=p.parseFromString(h,'text/html'),nm=d.getElementById('page-content');if(!nm){_arRefreshing=false;return;}var om=document.getElementById('page-content'),sy=window.scrollY;om.outerHTML=nm.outerHTML;window.scrollTo(0,sy);_reExecScripts(document.getElementById('page-content'));_arRefreshing=false;}).catch(function(){_arRefreshing=false;});}
 function toggleAutoRefresh(){var e=document.getElementById('ar-toggle').checked;localStorage.setItem('ar',e?'1':'0');if(e){var i=parseInt(document.getElementById('ar-interval').value);_startAR(i);}else{_stopAR();}}
 function changeAutoInterval(){localStorage.setItem('ar-int',document.getElementById('ar-interval').value);if(document.getElementById('ar-toggle').checked){_stopAR();_startAR(parseInt(document.getElementById('ar-interval').value));}}
 function _startAR(ms){_stopAR();_arTimer=setInterval(smartRefresh,ms);}
 function _stopAR(){if(_arTimer){clearInterval(_arTimer);_arTimer=null;}}
 document.addEventListener('DOMContentLoaded',function(){var ar=localStorage.getItem('ar');if(ar===null){ar='1';localStorage.setItem('ar','1');}if(ar==='1'){document.getElementById('ar-toggle').checked=true;var i=parseInt(localStorage.getItem('ar-int')||'5000');document.getElementById('ar-interval').value=String(i);_startAR(i);}});
-
-async function retryTask(id){if(!confirm('Retry task #'+id+'?'))return;await fetch('/api/tasks/'+id+'/retry',{method:'POST'});smartRefresh();}
-async function deleteTask(id){if(!confirm('Delete task #'+id+'?'))return;await fetch('/api/tasks/'+id,{method:'DELETE'});smartRefresh();}
-async function showDetail(id){try{const r=await fetch('/api/tasks/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert('Failed to load details');}}
-async function showRunDetail(id){try{const r=await fetch('/api/runs/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert('Failed to load details');}}
-async function showTemplateDetail(id){try{const r=await fetch('/api/templates/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert('Failed to load details');}}
+async function retryTask(id){if(!confirm(_tf('alert.confirmRetry',id)))return;await fetch('/api/tasks/'+id+'/retry',{method:'POST'});smartRefresh();}
+async function deleteTask(id){if(!confirm(_tf('alert.confirmDelete',id)))return;await fetch('/api/tasks/'+id,{method:'DELETE'});smartRefresh();}
+async function showDetail(id){try{const r=await fetch('/api/tasks/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert(_t('alert.failedLoadDetails'));}}
+async function showRunDetail(id){try{const r=await fetch('/api/runs/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert(_t('alert.failedLoadDetails'));}}
+async function showTemplateDetail(id){try{const r=await fetch('/api/templates/'+id);const t=await r.json();document.getElementById('dc').textContent=JSON.stringify(t,null,2);document.getElementById('dd').showModal();}catch(e){alert(_t('alert.failedLoadDetails'));}}
 async function enableTmpl(id){await fetch('/api/templates/'+id+'/enable',{method:'POST'});smartRefresh();}
-async function disableTmpl(id){if(!confirm('Disable this template?'))return;await fetch('/api/templates/'+id+'/disable',{method:'POST'});smartRefresh();}
-async function deleteTmpl(id){if(!confirm('Delete this template? This cannot be undone!'))return;await fetch('/api/templates/'+id,{method:'DELETE'});smartRefresh();}
-async function triggerTmpl(id){if(!confirm('Trigger now?'))return;const r=await fetch('/api/templates/'+id+'/trigger',{method:'POST'});const d=await r.json();if(d.success){alert('Task #'+d.taskId+' created');smartRefresh();}else{alert('Trigger failed');}}
+async function disableTmpl(id){if(!confirm(_t('alert.confirmDisable')))return;await fetch('/api/templates/'+id+'/disable',{method:'POST'});smartRefresh();}
+async function deleteTmpl(id){if(!confirm(_t('alert.confirmDeleteTemplate')))return;await fetch('/api/templates/'+id,{method:'DELETE'});smartRefresh();}
+async function triggerTmpl(id){if(!confirm(_t('alert.confirmTrigger')))return;const r=await fetch('/api/templates/'+id+'/trigger',{method:'POST'});const d=await r.json();if(d.success){alert(_tf('alert.taskCreated',d.taskId));smartRefresh();}else{alert(_t('alert.triggerFailed'));}}
 function toggleLog(id){const el=document.getElementById('log-'+id);el.style.display=el.style.display==='none'?'block':'none';}
 
 
 
 async function cloneTask(id){
   try{
-    if(activeChannels.length===0)await loadActiveChannels();
     const [rTask, rAgents] = await Promise.all([
       fetch('/api/tasks/'+id),
       fetch('/api/agents'),
@@ -340,7 +347,7 @@ async function cloneTask(id){
     document.getElementById('et-id').value=t.id;
     document.getElementById('et-name').value='[Clone] '+t.name;
     var agSel=document.getElementById('et-ag');
-    agSel.innerHTML='<option value="">— Select an agent —</option>';
+    agSel.innerHTML='<option value="">'+_t('clone.selectAgent')+'</option>';
     agents.forEach(function(a){
       var opt=document.createElement('option');
       opt.value=a.name;opt.textContent=a.name+(a.description?' — '+a.description:'');
@@ -355,16 +362,8 @@ async function cloneTask(id){
     document.getElementById('et-stars-im').querySelector('input[type=hidden]').value=t.importance||3;
     document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value=t.urgency||3;
     initStars('et-stars-im');initStars('et-stars-ur');
-    document.getElementById('etc-notify-section').innerHTML=modalNotifyHtml('etc');
-    modalBuildNotifyTable('etc');
-    if(t.notifyOn){
-      var etcNo=typeof t.notifyOn==='string'?JSON.parse(t.notifyOn):t.notifyOn;
-      document.querySelector('input[name="etc-notify-mode"][value="custom"]').checked=true;
-      modalNotifyToggle('etc');
-      modalSetNotifyChecks('etc',etcNo);
-    }
     document.getElementById('et-modal').showModal();
-  }catch(e){alert('Failed to load task: '+e.message);}
+  }catch(e){alert(_tf('alert.failedLoadTask',e.message));}
 }
 
 async function saveCloneTask(){
@@ -373,8 +372,8 @@ async function saveCloneTask(){
     try{
       var vr=await fetch('/api/fs/validate?path='+encodeURIComponent(cwdRaw));
       var vd=await vr.json();
-      if(!vd.valid){alert('Invalid directory: '+vd.error);return;}
-    }catch(e){alert('Validation error: '+e.message);return;}
+      if(!vd.valid){alert(_tf('alert.invalidDir',vd.error));return;}
+    }catch(e){alert(_tf('alert.validationError',e.message));return;}
   }
   var data={
     name:document.getElementById('et-name').value.trim(),
@@ -387,20 +386,17 @@ async function saveCloneTask(){
     importance:parseInt(document.getElementById('et-stars-im').querySelector('input[type=hidden]').value)||3,
     urgency:parseInt(document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value)||3,
   };
-  if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
-  var etcMode=document.querySelector('input[name="etc-notify-mode"]:checked');
-  if(etcMode&&etcMode.value==='custom'){data.notifyOn=modalGetNotifyChannels('etc');}
+  if(!data.name||!data.agent||!data.prompt){alert(_t('alert.requiredFields'));return;}
   try{
     const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const d=await r.json();
-    if(d.success){document.getElementById('et-modal').close();document.getElementById('toast').textContent='Task #'+d.taskId+' created (Clone)';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){smartRefresh();},1500);}
-    else{alert('Create failed: '+d.error);}
-  }catch(e){alert('Create failed: '+e.message);}
+    if(d.success){document.getElementById('et-modal').close();document.getElementById('toast').textContent=_tf('toast.taskCreated',d.taskId)+' (Clone)';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){smartRefresh();},1500);}
+    else{alert(_tf('alert.createFailed',d.error));}
+  }catch(e){alert(_tf('alert.createFailed',e.message));}
 }
 
 async function editTemplate(id){
   try{
-    if(activeChannels.length===0)await loadActiveChannels();
     const [rTmpl, rAgents, rModels]=await Promise.all([
       fetch('/api/templates/'+id),
       fetch('/api/agents'),
@@ -412,7 +408,7 @@ async function editTemplate(id){
     document.getElementById('etm-id').value=t.id;
     document.getElementById('etm-name').value=t.name||'';
     var agSel=document.getElementById('etm-ag');
-    agSel.innerHTML='<option value="">— Select an agent —</option>';
+    agSel.innerHTML='<option value="">'+_t('template.edit.selectAgent')+'</option>';
     agents.forEach(function(a){
       var opt=document.createElement('option');
       opt.value=a.name;opt.textContent=a.name+(a.description?' — '+a.description:'');
@@ -436,25 +432,10 @@ async function editTemplate(id){
     document.getElementById('etm-intervalval').value=t.intervalMs?Math.floor(t.intervalMs/60000):6;
     document.getElementById('etm-intervalunit').value=t.intervalMs?(t.intervalMs%86400000===0?'days':t.intervalMs%3600000===0?'hours':'minutes'):'hours';
     document.getElementById('etm-delayval').value=t.runAt?Math.floor(Math.max((t.runAt-Date.now())/60000,1))||30:30;
-    t.enabled?document.getElementById('etm-status').textContent='Enabled':document.getElementById('etm-status').textContent='Disabled';
-    document.getElementById('etm-notify-section').innerHTML=modalNotifyHtml('etm');
-    modalBuildNotifyTable('etm');
-    if(t.notifyOn){
-      var etmNo=typeof t.notifyOn==='string'?JSON.parse(t.notifyOn):t.notifyOn;
-      document.querySelector('input[name="etm-notify-mode"][value="custom"]').checked=true;
-      modalNotifyToggle('etm');
-      modalSetNotifyChecks('etm',etmNo);
-    }
+    t.enabled?document.getElementById('etm-status').textContent=_t('status.enabled'):document.getElementById('etm-status').textContent=_t('status.disabled');
     editTmplToggleFields();
     document.getElementById('etm-modal').showModal();
-  }catch(e){alert('Failed to load template: '+e.message);}
-}
-
-function editTmplToggleFields(){
-  const type=document.getElementById('etm-schtype').value;
-  document.getElementById('etm-cron-section').style.display=type==='cron'?'block':'none';
-  document.getElementById('etm-recurring-section').style.display=type==='recurring'?'block':'none';
-  document.getElementById('etm-delayed-section').style.display=type==='delayed'?'block':'none';
+  }catch(e){alert(_tf('alert.failedLoadTemplate',e.message));}
 }
 
 async function saveEditTemplate(){
@@ -464,8 +445,8 @@ async function saveEditTemplate(){
     try{
       var vr=await fetch('/api/fs/validate?path='+encodeURIComponent(cwdRaw));
       var vd=await vr.json();
-      if(!vd.valid){alert('Invalid directory: '+vd.error);return;}
-    }catch(e){alert('Validation error: '+e.message);return;}
+      if(!vd.valid){alert(_tf('alert.invalidDir',vd.error));return;}
+    }catch(e){alert(_tf('alert.validationError',e.message));return;}
   }
   var data={
     name:document.getElementById('etm-name').value.trim(),
@@ -479,40 +460,40 @@ async function saveEditTemplate(){
     urgency:parseInt(document.getElementById('etm-stars-ur').querySelector('input[type=hidden]').value)||3,
     scheduleType:document.getElementById('etm-schtype').value,
   };
-  if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+  if(!data.name||!data.agent||!data.prompt){alert(_t('alert.requiredFields'));return;}
   var etmMode=document.querySelector('input[name="etm-notify-mode"]:checked');
   if(etmMode&&etmMode.value==='custom'){data.notifyOn=modalGetNotifyChannels('etm');}
   const mults={minutes:60000,hours:3600000,days:86400000};
   if(data.scheduleType==='cron'){
     data.cronExpr=document.getElementById('etm-cronexpr').value.trim();
-    if(!data.cronExpr){alert('Cron expression is required.');return;}
+    if(!data.cronExpr){alert(_t('alert.cronRequired'));return;}
   }else if(data.scheduleType==='recurring'){
     const v=parseInt(document.getElementById('etm-intervalval').value)||0;
     const u=document.getElementById('etm-intervalunit').value;
-    if(v<=0){alert('Interval value must be greater than 0.');return;}
+    if(v<=0){alert(_t('alert.intervalRequired'));return;}
     data.intervalMs=v*mults[u];
   }else if(data.scheduleType==='delayed'){
     const v=parseInt(document.getElementById('etm-delayval').value)||0;
-    if(v<=0){alert('Delay value must be greater than 0.');return;}
+    if(v<=0){alert(_t('alert.delayRequired'));return;}
     data.runAt=Date.now()+v*60000;
   }
   try{
     const r=await fetch('/api/templates/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const d=await r.json();
-    if(d.success){document.getElementById('etm-modal').close();document.getElementById('toast').textContent='Template #'+id+' updated successfully';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){smartRefresh();},1500);}
-    else{alert('Update failed: '+d.error);}
-  }catch(e){alert('Update failed: '+e.message);}
+    if(d.success){document.getElementById('etm-modal').close();document.getElementById('toast').textContent=_tf('template.toast.updated',id);document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){smartRefresh();},1500);}
+    else{alert(_tf('alert.updateFailed',d.error));}
+  }catch(e){alert(_tf('alert.updateFailed',e.message));}
 }
 
 async function clearDatabase(){
-  if(!confirm('Clear all task data? This cannot be undone!'))return;
-  if(!confirm('Final confirmation: ALL tasks, runs and templates will be deleted.'))return;
+  if(!confirm(_t('alert.confirmClearDb')))return;
+  if(!confirm(_t('alert.confirmClearDbFinal')))return;
   try{
     const r=await fetch('/api/database/clear',{method:'POST'});
     const d=await r.json();
-    if(d.success){alert('Database cleared');smartRefresh();}
-    else{alert('Clear failed: '+d.error);}
-  }catch(e){alert('Clear failed: '+e.message);}
+    if(d.success){alert(_t('alert.dbCleared'));smartRefresh();}
+    else{alert(_tf('alert.clearFailed',d.error));}
+  }catch(e){alert(_tf('alert.clearFailed',e.message));}
 }
 
 function showTip(el,text){
@@ -549,14 +530,17 @@ async function saveConfig(){
       heartbeatTimeoutMs:Number(form.wt.value)*1000,
       cleanupIntervalMs:Number(form.wc.value)*1000,
       retentionDays:Number(form.rd.value),
+    },
+    dashboard:{
+      locale:document.getElementById('locale-select')?.value||'en',
     }
   };
   try{
     const r=await fetch('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const d=await r.json();
-    if(d.success){document.getElementById('toast').textContent='Config saved. Restart Gateway to apply.';document.getElementById('toast').style.display='block';setTimeout(()=>document.getElementById('toast').style.display='none',3000);}
-    else{alert('Save failed: '+d.error);}
-  }catch(e){alert('Save failed: '+e.message);}
+    if(d.success){document.getElementById('toast').textContent=_t('system.saveMessage');document.getElementById('toast').style.display='block';setTimeout(()=>document.getElementById('toast').style.display='none',3000);}
+    else{alert(_tf('alert.saveFailed',d.error));}
+  }catch(e){alert(_tf('alert.saveFailed',e.message));}
 }
 
 function initStars(containerId){
@@ -564,7 +548,7 @@ function initStars(containerId){
   if(!c)return;
   var hidden=c.querySelector('input[type=hidden]');
   var label=document.getElementById(containerId+'-label');
-  var names=['Low','Low','Medium','High','Critical'];
+  var names=[_t('stars.low'),_t('stars.low'),_t('stars.medium'),_t('stars.high'),_t('stars.critical')];
   var value=parseInt(hidden.value)||3;
   var stars=c.querySelectorAll('.star');
   function paint(v){
@@ -586,13 +570,13 @@ async function createTask(){
       var vr=await fetch('/api/fs/validate?path='+encodeURIComponent(cwdRaw));
       var vd=await vr.json();
       if(!vd.valid){
-        document.getElementById('cwd-error').textContent='Invalid directory: '+vd.error;
+        document.getElementById('cwd-error').textContent=_tf('alert.invalidDir',vd.error);
         document.getElementById('cwd-status').textContent='\u274C';
         document.getElementById('cwd-status').style.color='#f85149';
         return;
       }
     }catch(e){
-      document.getElementById('cwd-error').textContent='Validation error: '+e.message;
+      document.getElementById('cwd-error').textContent=_tf('alert.validationError',e.message);
       return;
     }
   }
@@ -607,15 +591,7 @@ async function createTask(){
     urgency:parseInt(f.ur.value)||3,
     maxRetries:parseInt(f.mr.value)||3,
   };
-  if(f.notify_mode && f.notify_mode.value==='custom'){
-    var notifyOn = {
-      on_success: getCheckedNotifyChannels('on_success'),
-      on_failure: getCheckedNotifyChannels('on_failure'),
-      on_dead_letter: getCheckedNotifyChannels('on_dead_letter'),
-    };
-    data.notifyOn = notifyOn;
-  }
-  if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+  if(!data.name||!data.agent||!data.prompt){alert(_t('alert.requiredFields'));return;}
 
   var mode=f.sch_mode.value;
   if(mode==='schedule'){
@@ -623,39 +599,42 @@ async function createTask(){
     var mults={minutes:60000,hours:3600000,days:86400000};
     if(data.scheduleType==='cron'){
       data.cronExpr=f.cron_expr.value.trim();
-      if(!data.cronExpr){alert('Cron expression is required.');return;}
+      if(!data.cronExpr){alert(_t('alert.cronRequired'));return;}
     }else if(data.scheduleType==='recurring'){
       var v=parseInt(f.int_val.value)||0;
       var u=f.int_unit.value;
-      if(v<=0){alert('Interval value must be greater than 0.');return;}
+      if(v<=0){alert(_t('alert.intervalRequired'));return;}
       data.intervalMs=v*(mults[u]||60000);
     }else if(data.scheduleType==='delayed'){
       var v=parseInt(f.del_val.value)||0;
       var u=f.del_unit.value;
-      if(v<=0){alert('Delay value must be greater than 0.');return;}
+      if(v<=0){alert(_t('alert.delayRequired'));return;}
       data.runAt=Date.now()+v*(mults[u]||60000);
     }
     try{
       var r=await fetch('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       var d=await r.json();
       if(d.success){location.href='/templates?created='+d.templateId;}
-      else{alert('Failed to create schedule: '+d.error);}
-    }catch(e){alert('Failed to create schedule: '+e.message);}
+      else{alert(_tf('alert.failedCreateSchedule',d.error));}
+    }catch(e){alert(_tf('alert.failedCreateSchedule',e.message));}
   }else{
     try{
       var r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       var d=await r.json();
       if(d.success){location.href='/?created='+d.taskId;}
-      else{alert('Failed to create task: '+d.error);}
-    }catch(e){alert('Failed to create task: '+e.message);}
+      else{alert(_tf('alert.failedCreateTask',d.error));}
+    }catch(e){alert(_tf('alert.failedCreateTask',e.message));}
   }
 }
+
+
+
 
 function toggleScheduling(){
   var f=document.getElementById('task-form');
   var schedule=f.sch_mode.value==='schedule';
   document.getElementById('schedule-section').style.display=schedule?'block':'none';
-  document.getElementById('submit-btn').textContent=schedule?'Create Schedule':'Create Task';
+  document.getElementById('submit-btn').textContent=schedule?_t('btn.createSchedule'):_t('btn.createTask');
   if(schedule)updateScheduleFields();
 }
 
@@ -785,22 +764,25 @@ function modalNotifyHtml(prefix){
 <div id="tooltip"></div>
 <div class="c">
   <header>
-    <div><h1>OpenCron Dashboard</h1><span class="mu sm">Task scheduler management</span></div>
-    <div><a href="/new" class="rf">+ New Task</a> <button class="rf" onclick="smartRefresh()">&#x21bb; Refresh</button> <label class="ar-label"><input type="checkbox" id="ar-toggle" onchange="toggleAutoRefresh()"> Auto</label><select id="ar-interval" class="ar-sel" onchange="changeAutoInterval()"><option value="5000" selected>5s</option><option value="10000">10s</option><option value="30000">30s</option><option value="60000">60s</option></select></div>
+    <div><h1>${esc(_tr(T, 'layout.title'))}</h1><span class="mu sm">${esc(_tr(T, 'layout.subtitle'))}</span></div>
+    <div><a href="/new" class="rf">${esc(_tr(T, 'btn.newTask'))}</a> <button class="rf" onclick="smartRefresh()">&#x21bb; ${esc(_tr(T, 'btn.refresh'))}</button> <label class="ar-label"><input type="checkbox" id="ar-toggle" onchange="toggleAutoRefresh()"> ${esc(_tr(T, 'btn.autoRefresh'))}</label><select id="ar-interval" class="ar-sel" onchange="changeAutoInterval()"><option value="5000" selected>5s</option><option value="10000">10s</option><option value="30000">30s</option><option value="60000">60s</option></select></div>
   </header>
   <nav class="tabs">
-    <a href="/" class="${activeTab === 'tasks' ? 'active' : ''}">Task Queue</a>
-    <a href="/templates" class="${activeTab === 'templates' ? 'active' : ''}">Scheduled Tasks</a>
-    <a href="/runs" class="${activeTab === 'runs' ? 'active' : ''}">Execution Logs</a>
-    <a href="/system" class="${activeTab === 'system' ? 'active' : ''}">System Status</a>
+    <a href="/" class="${activeTab === 'tasks' ? 'active' : ''}">${esc(_tr(T, 'nav.taskQueue'))}</a>
+    <a href="/templates" class="${activeTab === 'templates' ? 'active' : ''}">${esc(_tr(T, 'nav.scheduledTasks'))}</a>
+    <a href="/runs" class="${activeTab === 'runs' ? 'active' : ''}">${esc(_tr(T, 'nav.executionLogs'))}</a>
+    <a href="/system" class="${activeTab === 'system' ? 'active' : ''}">${esc(_tr(T, 'nav.systemStatus'))}</a>
   </nav>
   <main id="page-content">${body}</main>
 </div>
-<dialog id="dd"><div class="dh"><h3 style="margin:0">Details</h3><button class="cb" onclick="document.getElementById('dd').close()">&times;</button></div><div class="db"><pre id="dc"></pre></div></dialog>
+<dialog id="dd"><div class="dh"><h3 style="margin:0">${esc(_tr(T, 'btn.details'))}</h3><button class="cb" onclick="document.getElementById('dd').close()">&times;</button></div><div class="db"><pre id="dc"></pre></div></dialog>
 </body></html>`;
 }
 
 app.get('/', async (c) => {
+    const cfg = loadConfig();
+    const locale = cfg.dashboard?.locale || 'en';
+    const T = getTranslations(locale);
     const page = Number(c.req.query('page') || '1');
     const statusFilter = c.req.query('status') || '';
     const range = c.req.query('range') || '';
@@ -828,12 +810,12 @@ app.get('/', async (c) => {
 
     const rangeParam = range ? '&range=' + range : '';
     let filterBtns = `<div style="margin-bottom:12px;display:flex;gap:6px;">
-      <a href="/${range ? '?range=' + range : ''}" class="btn ${!statusFilter ? 'btn-primary' : ''}">All</a>
-      <a href="/?status=pending${rangeParam}" class="btn ${statusFilter === 'pending' ? 'btn-primary' : ''}">Pending</a>
-      <a href="/?status=running${rangeParam}" class="btn ${statusFilter === 'running' ? 'btn-primary' : ''}">Running</a>
-      <a href="/?status=done${rangeParam}" class="btn ${statusFilter === 'done' ? 'btn-primary' : ''}">Done</a>
-      <a href="/?status=failed${rangeParam}" class="btn ${statusFilter === 'failed' ? 'btn-primary' : ''}">Failed</a>
-      <a href="/?status=dead_letter${rangeParam}" class="btn ${statusFilter === 'dead_letter' ? 'btn-primary' : ''}">Dead Letter</a>
+      <a href="/${range ? '?range=' + range : ''}" class="btn ${!statusFilter ? 'btn-primary' : ''}">${esc(_tr(T, 'filter.all'))}</a>
+      <a href="/?status=pending${rangeParam}" class="btn ${statusFilter === 'pending' ? 'btn-primary' : ''}">${esc(_tr(T, 'status.pending'))}</a>
+      <a href="/?status=running${rangeParam}" class="btn ${statusFilter === 'running' ? 'btn-primary' : ''}">${esc(_tr(T, 'status.running'))}</a>
+      <a href="/?status=done${rangeParam}" class="btn ${statusFilter === 'done' ? 'btn-primary' : ''}">${esc(_tr(T, 'status.done'))}</a>
+      <a href="/?status=failed${rangeParam}" class="btn ${statusFilter === 'failed' ? 'btn-primary' : ''}">${esc(_tr(T, 'status.failed'))}</a>
+      <a href="/?status=dead_letter${rangeParam}" class="btn ${statusFilter === 'dead_letter' ? 'btn-primary' : ''}">${esc(_tr(T, 'status.deadLetter'))}</a>
     </div>`;
 
     function buildNotifyIconCell(task: typeof tasks[0], config: GatewayConfig): string {
@@ -876,12 +858,12 @@ app.get('/', async (c) => {
     for (const task of tasks) {
         const st = (task.status ?? '').toUpperCase();
         const lr = latestRuns.get(task.id);
-        const sessionBtn = lr ? `<button class="btn btn-sm" onclick="viewSession(${lr.id})">Session</button>` : '';
+        const sessionBtn = lr ? `<button class="btn btn-sm" onclick="viewSession(${lr.id})">${esc(_tr(T, 'btn.session'))}</button>` : '';
         const toolsHint = lr?.toolsUsed
             ? (() => {
                 const tools = JSON.parse(lr.toolsUsed) as string[];
                 return tools.length > 0
-                    ? `<span class="mu sm" style="cursor:default" title="${esc(tools.join(', '))}">${tools.length} tool${tools.length > 1 ? 's' : ''}</span>`
+                    ? `<span class="mu sm" style="cursor:default" title="${esc(tools.join(', '))}">${tools.length} ${esc(_tr(T, tools.length > 1 ? 'tasks.toolPlural' : 'tasks.toolSingular'))}</span>`
                     : '';
               })()
             : '';
@@ -889,7 +871,7 @@ app.get('/', async (c) => {
             ? (() => {
                 const skills = JSON.parse(lr.skillsUsed) as string[];
                 return skills.length > 0
-                    ? `<span class="mu sm" style="cursor:default;color:var(--purple)" title="${esc(skills.join(', '))}">${skills.length} skill${skills.length > 1 ? 's' : ''}</span>`
+                    ? `<span class="mu sm" style="cursor:default;color:var(--purple)" title="${esc(skills.join(', '))}">${skills.length} ${esc(_tr(T, skills.length > 1 ? 'tasks.skillPlural' : 'tasks.skillSingular'))}</span>`
                     : '';
               })()
             : '';
@@ -907,32 +889,32 @@ app.get('/', async (c) => {
           <td class="mu sm">${usageHint}</td>
           <td>${notifyHtml}</td>
           <td>
-            <button class="btn btn-sm" onclick="showDetail(${task.id})">Details</button>
+            <button class="btn btn-sm" onclick="showDetail(${task.id})">${esc(_tr(T, 'btn.details'))}</button>
             ${sessionBtn}
-            ${task.status !== 'running' ? `<button class="btn btn-sm" onclick="cloneTask(${task.id})">Clone</button>` : ''}
-            ${(task.status === 'failed' || task.status === 'dead_letter') ? `<button class="btn btn-sm btn-warn" onclick="retryTask(${task.id})">Retry</button>` : ''}
-            <button class="btn btn-sm btn-danger" onclick="deleteTask(${task.id})">Delete</button>
+            ${task.status !== 'running' ? `<button class="btn btn-sm" onclick="cloneTask(${task.id})">${esc(_tr(T, 'btn.clone'))}</button>` : ''}
+            ${(task.status === 'failed' || task.status === 'dead_letter') ? `<button class="btn btn-sm btn-warn" onclick="retryTask(${task.id})">${esc(_tr(T, 'btn.retry'))}</button>` : ''}
+            <button class="btn btn-sm btn-danger" onclick="deleteTask(${task.id})">${esc(_tr(T, 'btn.delete'))}</button>
           </td></tr>`;
     }
 
     const qp = (statusFilter ? `&status=${statusFilter}` : '') + (range ? `&range=${range}` : '');
     let paging = `<div class="pn">`;
-    if (page > 1) paging += `<a href="/?page=${page - 1}${qp}" class="btn">Prev</a>`;
-    paging += `<span class="mu sm">Page ${page} / ${totalPages} (${counts.total} total)</span>`;
-    if (page < totalPages) paging += `<a href="/?page=${page + 1}${qp}" class="btn">Next</a>`;
+    if (page > 1) paging += `<a href="/?page=${page - 1}${qp}" class="btn">${esc(_tr(T, 'btn.prev'))}</a>`;
+    paging += `<span class="mu sm">${esc(_tr(T, 'pagination.page', page, totalPages, counts.total))}</span>`;
+    if (page < totalPages) paging += `<a href="/?page=${page + 1}${qp}" class="btn">${esc(_tr(T, 'btn.next'))}</a>`;
     paging += `</div>`;
 
     const body = `
       <div class="g4">
-        <div class="card"><div class="sv" style="color:var(--t2)">${counts.pending}</div><div class="sl">Pending</div></div>
-        <div class="card"><div class="sv" style="color:var(--blue)">${counts.running}</div><div class="sl">Running</div></div>
-        <div class="card"><div class="sv" style="color:var(--green)">${counts.done}</div><div class="sl">Done</div></div>
-        <div class="card"><div class="sv" style="color:var(--red)">${counts.failed}</div><div class="sl">Failed / Dead</div></div>
+        <div class="card"><div class="sv" style="color:var(--t2)">${counts.pending}</div><div class="sl">${esc(_tr(T, 'tasks.stats.pending'))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--blue)">${counts.running}</div><div class="sl">${esc(_tr(T, 'tasks.stats.running'))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--green)">${counts.done}</div><div class="sl">${esc(_tr(T, 'tasks.stats.done'))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--red)">${counts.failed}</div><div class="sl">${esc(_tr(T, 'tasks.stats.failed'))}</div></div>
       </div>
-      ${RangeBar(range, '/', statusFilter ? 'status=' + statusFilter : '')}
+      ${RangeBar(range, '/', statusFilter ? 'status=' + statusFilter : '', T)}
       ${filterBtns}
       <div class="panel"><table>
-        <thead><tr><th width="50">ID</th><th>Task</th><th>Agent</th><th width="90">Status</th><th width="70">Duration</th><th width="60">Retries</th><th width="70">Tools</th><th width="70">Notify</th><th>Actions</th></tr></thead>
+        <thead><tr><th width="50">${esc(_tr(T, 'table.id'))}</th><th>${esc(_tr(T, 'table.task'))}</th><th>${esc(_tr(T, 'table.agent'))}</th><th width="90">${esc(_tr(T, 'table.status'))}</th><th width="70">${esc(_tr(T, 'table.duration'))}</th><th width="60">${esc(_tr(T, 'table.retries'))}</th><th width="70">${esc(_tr(T, 'table.tools'))}</th><th width="70">${esc(_tr(T, 'table.notify'))}</th><th>${esc(_tr(T, 'table.actions'))}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
       ${paging}
@@ -941,7 +923,7 @@ app.get('/', async (c) => {
           var p=new URLSearchParams(location.search);
           if(p.get('created')&&!window.__taskCreatedToast){
             window.__taskCreatedToast=true;
-            document.getElementById('toast').textContent='Task #'+p.get('created')+' created successfully';
+            document.getElementById('toast').textContent=_tf('toast.taskCreated',p.get('created'));
             document.getElementById('toast').className='toast toast-ok';
             document.getElementById('toast').style.display='block';
             setTimeout(function(){document.getElementById('toast').style.display='none';},3000);
@@ -956,61 +938,61 @@ app.get('/', async (c) => {
         dialog.et-wide .db-inner { display:block; }
       </style>
       <dialog id="et-modal" class="et-wide">
-        <div class="dh"><h3 style="margin:0">Clone Task</h3><button class="cb" onclick="document.getElementById('et-modal').close()">&times;</button></div>
+        <div class="dh"><h3 style="margin:0">${esc(_tr(T, 'clone.title'))}</h3><button class="cb" onclick="document.getElementById('et-modal').close()">&times;</button></div>
         <div class="db">
           <input type="hidden" id="et-id">
           <div id="et-form-view">
             <div class="field">
-              <label>Task Name<span class="hl">*</span></label>
-              <input type="text" id="et-name" placeholder="e.g. Generate weekly report">
+              <label>${esc(_tr(T, 'clone.field.name'))}<span class="hl">*</span></label>
+              <input type="text" id="et-name" placeholder="${esc(_tr(T, 'clone.placeholder.name'))}">
             </div>
             <div class="field-grid">
               <div class="field">
-                <label>Agent<span class="hl">*</span></label>
-                <select id="et-ag"><option value="">— Select an agent —</option></select>
+                <label>${esc(_tr(T, 'clone.field.agent'))}<span class="hl">*</span></label>
+                <select id="et-ag"><option value="">${esc(_tr(T, 'clone.selectAgent'))}</option></select>
               </div>
               <div class="field">
-                <label>Model</label>
-                <input type="text" id="et-mo" list="et-model-suggestions" placeholder="default">
+                <label>${esc(_tr(T, 'clone.field.model'))}</label>
+                <input type="text" id="et-mo" list="et-model-suggestions" placeholder="${esc(_tr(T, 'clone.placeholder.model'))}">
                 <datalist id="et-model-suggestions"></datalist>
               </div>
             </div>
             <div class="field">
-              <label>Prompt<span class="hl">*</span></label>
-              <textarea id="et-pr" style="min-height:120px" placeholder="Describe what you want the AI to do..."></textarea>
+              <label>${esc(_tr(T, 'clone.field.prompt'))}<span class="hl">*</span></label>
+              <textarea id="et-pr" style="min-height:120px" placeholder="${esc(_tr(T, 'clone.placeholder.prompt'))}"></textarea>
             </div>
             <div class="field">
-              <label>Working Directory</label>
+              <label>${esc(_tr(T, 'clone.field.workingDir'))}</label>
               <div class="cwd-row">
-                <input type="text" id="et-cw" class="cwd-input" placeholder="e.g. C:\Users\...\my-project" autocomplete="off">
+                <input type="text" id="et-cw" class="cwd-input" placeholder="${esc(_tr(T, 'clone.placeholder.dir'))}" autocomplete="off">
                 <span id="et-cwd-status" class="cwd-status"></span>
-                <button type="button" id="et-btn-browse" class="btn" style="white-space:nowrap" onclick="etOpenBrowse()">Browse</button>
+                <button type="button" id="et-btn-browse" class="btn" style="white-space:nowrap" onclick="etOpenBrowse()">${esc(_tr(T, 'btn.browse'))}</button>
               </div>
               <div id="et-cwd-error" class="field-error"></div>
             </div>
             <div class="field-grid">
               <div class="field">
-                <label>Category</label>
+                <label>${esc(_tr(T, 'clone.field.category'))}</label>
                 <select id="et-ca"><option value="general">general</option><option value="translate">translate</option><option value="generate">generate</option><option value="review">review</option><option value="test">test</option></select>
               </div>
               <div class="field">
-                <label>Max Retries</label>
+                <label>${esc(_tr(T, 'clone.field.maxRetries'))}</label>
                 <select id="et-mr"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option></select>
               </div>
             </div>
             <div class="field-grid">
               <div class="field">
-                <label>Importance</label>
+                <label>${esc(_tr(T, 'clone.field.importance'))}</label>
                 <div class="field-inline">
                   <div class="stars" id="et-stars-im"><input type="hidden" name="et-im" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
-                  <span class="mu sm" id="et-stars-im-label">Medium</span>
+                  <span class="mu sm" id="et-stars-im-label">${esc(_tr(T, 'stars.medium'))}</span>
                 </div>
               </div>
               <div class="field">
-                <label>Urgency</label>
+                <label>${esc(_tr(T, 'clone.field.urgency'))}</label>
                 <div class="field-inline">
                   <div class="stars" id="et-stars-ur"><input type="hidden" name="et-ur" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
-                  <span class="mu sm" id="et-stars-ur-label">Medium</span>
+                  <span class="mu sm" id="et-stars-ur-label">${esc(_tr(T, 'stars.medium'))}</span>
                 </div>
               </div>
             </div>
@@ -1018,18 +1000,18 @@ app.get('/', async (c) => {
           <div id="etc-notify-section"></div>
           <div id="et-browse-view" style="display:none;min-height:300px">
             <div class="ph" style="padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:4px">
-              <span class="mu sm" id="et-browse-path">Home</span>
+              <span class="mu sm" id="et-browse-path">${esc(_tr(T, 'browse.home'))}</span>
             </div>
             <div id="et-browse-list" style="min-height:200px"></div>
             <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:10px">
-              <button class="btn" onclick="etBrowseCancel()">Cancel</button>
-              <button class="rf" id="et-browse-select" onclick="etBrowseSelect()" disabled>Select this folder</button>
+              <button class="btn" onclick="etBrowseCancel()">${esc(_tr(T, 'btn.cancel'))}</button>
+              <button class="rf" id="et-browse-select" onclick="etBrowseSelect()" disabled>${esc(_tr(T, 'btn.selectFolder'))}</button>
             </div>
           </div>
         </div>
         <div class="modal-footer" id="et-modal-footer">
-          <button class="btn" onclick="document.getElementById('et-modal').close()">Cancel</button>
-          <button class="rf" onclick="saveCloneTask()">Create Clone</button>
+          <button class="btn" onclick="document.getElementById('et-modal').close()">${esc(_tr(T, 'btn.cancel'))}</button>
+          <button class="rf" onclick="saveCloneTask()">${esc(_tr(T, 'btn.createClone'))}</button>
         </div>
       </dialog>
 
@@ -1044,7 +1026,7 @@ app.get('/', async (c) => {
             fetch('/api/fs/validate?path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(v){
               if(v.valid){s.textContent='\u2705';s.style.color='#3fb950';e.textContent='';}
               else{s.textContent='\u274C';s.style.color='#f85149';e.textContent=v.error;}
-            }).catch(function(){s.textContent='\u274C';s.style.color='#f85149';e.textContent='Validation failed';});
+            }).catch(function(){s.textContent='\u274C';s.style.color='#f85149';e.textContent=_t('alert.validationFailed');});
           }
           document.getElementById('et-cw').addEventListener('input',function(){
             clearTimeout(etCwdTimeout);var p=this.value;
@@ -1071,14 +1053,14 @@ app.get('/', async (c) => {
           };
           function etBrowseLoad(dirPath){
             var list=document.getElementById('et-browse-list');
-            list.innerHTML='<div class="ta-center mu p30">Loading...</div>';
+            list.innerHTML='<div class="ta-center mu p30">'+_t('browse.loading')+'</div>';
             document.getElementById('et-browse-select').disabled=true;
             var url='/api/fs/browse';if(dirPath)url+='?path='+encodeURIComponent(dirPath);
             fetch(url).then(function(r){return r.json()}).then(function(data){
-              document.getElementById('et-browse-path').textContent=dirPath||'Home';
-              if(!data.entries||data.entries.length===0){list.innerHTML='<div class="ta-center mu p30">(empty directory)</div>';return;}
+              document.getElementById('et-browse-path').textContent=dirPath||_t('browse.home');
+              if(!data.entries||data.entries.length===0){list.innerHTML='<div class="ta-center mu p30">'+_t('browse.empty')+'</div>';return;}
               var html='';
-              if(dirPath)html+='<div class="dir-item dir-up" data-dir="'+(etBrowseStack.length>1?etBrowseStack[etBrowseStack.length-2]:'')+'">\u2190 ..</div>';
+              if(dirPath)html+='<div class="dir-item dir-up" data-dir="'+(etBrowseStack.length>1?etBrowseStack[etBrowseStack.length-2]:'')+'">\u2190 '+_t('browse.parentDir')+'</div>';
               data.entries.forEach(function(e){html+='<div class="dir-item" data-dir="'+esc(e.path)+'">\uD83D\uDCC1 '+esc(e.name)+'</div>';});
               list.innerHTML=html;
               Array.from(list.querySelectorAll('.dir-item')).forEach(function(el){
@@ -1093,15 +1075,18 @@ app.get('/', async (c) => {
                 });
               });
               if(dirPath)document.getElementById('et-browse-select').disabled=false;
-            }).catch(function(){list.innerHTML='<div class="ta-center mu" style="color:var(--red)">Failed to load directory</div>';});
+            }).catch(function(){list.innerHTML='<div class="ta-center mu" style="color:var(--red)">'+_t('browse.failedLoad')+'</div>';});
           }
         })();
       </script>`;
 
-    return c.html(renderLayout('Task Queue', 'tasks', body));
+    return c.html(renderLayout(_tr(T, 'tasks.pageTitle'), 'tasks', body, T));
 });
 
 app.get('/templates', async (c) => {
+    const cfg = loadConfig();
+    const locale = cfg.dashboard?.locale || 'en';
+    const T = getTranslations(locale);
     const templates = await TaskTemplateService.list(100);
 
     for (const tmpl of templates) {
@@ -1118,7 +1103,7 @@ app.get('/templates', async (c) => {
 
     let rows = '';
     for (const t of templates) {
-        const typeLabel = t.scheduleType === 'cron' ? 'Cron' : t.scheduleType === 'recurring' ? 'Recurring' : 'Delayed';
+        const typeLabel = t.scheduleType === 'cron' ? _tr(T, 'template.type.cron') : t.scheduleType === 'recurring' ? _tr(T, 'template.type.recurring') : _tr(T, 'template.type.delayed');
         const typeClass = 'tag t-' + t.scheduleType;
         let rule = '-';
         if (t.scheduleType === 'cron') rule = t.cronExpr || '-';
@@ -1126,11 +1111,11 @@ app.get('/templates', async (c) => {
         else if (t.scheduleType === 'delayed') rule = formatDate(t.runAt);
 
         const statusBadge = t.enabled
-            ? '<span class="badge b-done">Enabled</span>'
-            : '<span class="badge b-cancelled">Disabled</span>';
+            ? `<span class="badge b-done">${esc(_tr(T, 'status.enabled'))}</span>`
+            : `<span class="badge b-cancelled">${esc(_tr(T, 'status.disabled'))}</span>`;
         const toggleBtn = t.enabled
-            ? `<button class="btn btn-sm btn-warn" onclick="disableTmpl(${t.id})">Disable</button>`
-            : `<button class="btn btn-sm" onclick="enableTmpl(${t.id})">Enable</button>`;
+            ? `<button class="btn btn-sm btn-warn" onclick="disableTmpl(${t.id})">${esc(_tr(T, 'btn.disable'))}</button>`
+            : `<button class="btn btn-sm" onclick="enableTmpl(${t.id})">${esc(_tr(T, 'btn.enable'))}</button>`;
 
         rows += `<tr>
           <td class="mu">#${t.id}</td>
@@ -1142,28 +1127,28 @@ app.get('/templates', async (c) => {
           <td class="sm">${t.lastRunAt ? timeAgo(t.lastRunAt) : '-'}</td>
           <td class="sm">${t.nextRunAt ? timeUntil(t.nextRunAt) : '-'}</td>
           <td>
-            <button class="btn btn-sm" onclick="showTemplateDetail(${t.id})">Details</button>
-            <button class="btn btn-sm" onclick="editTemplate(${t.id})">Edit</button>
-            <button class="btn btn-sm btn-primary" onclick="triggerTmpl(${t.id})">Trigger</button>
+            <button class="btn btn-sm" onclick="showTemplateDetail(${t.id})">${esc(_tr(T, 'btn.details'))}</button>
+            <button class="btn btn-sm" onclick="editTemplate(${t.id})">${esc(_tr(T, 'btn.edit'))}</button>
+            <button class="btn btn-sm btn-primary" onclick="triggerTmpl(${t.id})">${esc(_tr(T, 'btn.trigger'))}</button>
             ${toggleBtn}
-            <button class="btn btn-sm btn-danger" onclick="deleteTmpl(${t.id})">Delete</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteTmpl(${t.id})">${esc(_tr(T, 'btn.delete'))}</button>
           </td></tr>`;
     }
 
     const emptyRow = templates.length === 0
-        ? `<tr><td colspan="8" class="ta-center mu p30">No scheduled templates. Create one via CLI: <code>opencron template add</code></td></tr>`
+        ? `<tr><td colspan="8" class="ta-center mu p30">${esc(_tr(T, 'template.empty'))}</td></tr>`
         : '';
 
     const body = `
       <div class="g3">
-        <div class="card"><div class="sv" style="color:var(--purple)">${templates.length}</div><div class="sl">Total Templates</div></div>
-        <div class="card"><div class="sv" style="color:var(--green)">${enabled}</div><div class="sl">Enabled</div></div>
-        <div class="card"><div class="sv" style="color:var(--t2)">${disabled}</div><div class="sl">Disabled</div></div>
+        <div class="card"><div class="sv" style="color:var(--purple)">${templates.length}</div><div class="sl">${esc(_tr(T, 'template.stats.total'))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--green)">${enabled}</div><div class="sl">${esc(_tr(T, 'template.stats.enabled'))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--t2)">${disabled}</div><div class="sl">${esc(_tr(T, 'template.stats.disabled'))}</div></div>
       </div>
       <div class="panel">
-        <div class="ph"><h3>Schedule Templates</h3></div>
+        <div class="ph"><h3>${esc(_tr(T, 'template.panel.title'))}</h3></div>
         <table>
-          <thead><tr><th width="50">ID</th><th>Name</th><th>Type</th><th>Rule</th><th width="90">Status</th><th>Last Run</th><th>Next Run</th><th>Actions</th></tr></thead>
+          <thead><tr><th width="50">${esc(_tr(T, 'table.id'))}</th><th>${esc(_tr(T, 'table.name'))}</th><th>${esc(_tr(T, 'table.type'))}</th><th>${esc(_tr(T, 'table.rule'))}</th><th width="90">${esc(_tr(T, 'table.status'))}</th><th>${esc(_tr(T, 'table.lastRun'))}</th><th>${esc(_tr(T, 'table.nextRun'))}</th><th>${esc(_tr(T, 'table.actions'))}</th></tr></thead>
           <tbody>${rows}${emptyRow}</tbody>
         </table>
       </div>
@@ -1172,7 +1157,7 @@ app.get('/templates', async (c) => {
           var p=new URLSearchParams(location.search);
           if(p.get('created')&&!window.__templateCreatedToast){
             window.__templateCreatedToast=true;
-            document.getElementById('toast').textContent='Template #'+p.get('created')+' created successfully';
+            document.getElementById('toast').textContent=_tf('toast.templateCreated',p.get('created'));
             document.getElementById('toast').className='toast toast-ok';
             document.getElementById('toast').style.display='block';
             setTimeout(function(){document.getElementById('toast').style.display='none';},3000);
@@ -1182,109 +1167,109 @@ app.get('/templates', async (c) => {
       </script>
 
       <dialog id="etm-modal" class="et-wide">
-        <div class="dh"><h3 style="margin:0">Edit Template</h3><button class="cb" onclick="document.getElementById('etm-modal').close()">&times;</button></div>
+        <div class="dh"><h3 style="margin:0">${esc(_tr(T, 'template.edit.title'))}</h3><button class="cb" onclick="document.getElementById('etm-modal').close()">&times;</button></div>
         <div class="db">
           <input type="hidden" id="etm-id">
           <div id="etm-form-view">
             <div class="field">
-              <label>Template Name<span class="hl">*</span></label>
-              <input type="text" id="etm-name" placeholder="e.g. Generate weekly report">
+              <label>${esc(_tr(T, 'template.edit.field.name'))}<span class="hl">*</span></label>
+              <input type="text" id="etm-name" placeholder="${esc(_tr(T, 'template.edit.placeholder.name'))}">
             </div>
             <div class="field-grid">
               <div class="field">
-                <label>Agent<span class="hl">*</span></label>
-                <select id="etm-ag"><option value="">— Select an agent —</option></select>
+                <label>${esc(_tr(T, 'clone.field.agent'))}<span class="hl">*</span></label>
+                <select id="etm-ag"><option value="">${esc(_tr(T, 'template.edit.selectAgent'))}</option></select>
               </div>
               <div class="field">
-                <label>Model</label>
-                <input type="text" id="etm-mo" list="etm-model-suggestions" placeholder="default">
+                <label>${esc(_tr(T, 'clone.field.model'))}</label>
+                <input type="text" id="etm-mo" list="etm-model-suggestions" placeholder="${esc(_tr(T, 'template.edit.placeholder.model'))}">
                 <datalist id="etm-model-suggestions"></datalist>
               </div>
             </div>
             <div class="field">
-              <label>Prompt<span class="hl">*</span></label>
-              <textarea id="etm-pr" style="min-height:120px" placeholder="Describe what you want the AI to do..."></textarea>
+              <label>${esc(_tr(T, 'clone.field.prompt'))}<span class="hl">*</span></label>
+              <textarea id="etm-pr" style="min-height:120px" placeholder="${esc(_tr(T, 'template.edit.placeholder.prompt'))}"></textarea>
             </div>
             <div class="field">
-              <label>Working Directory</label>
+              <label>${esc(_tr(T, 'clone.field.workingDir'))}</label>
               <div class="cwd-row">
-                <input type="text" id="etm-cw" class="cwd-input" placeholder="e.g. C:\Users\...\my-project" autocomplete="off">
+                <input type="text" id="etm-cw" class="cwd-input" placeholder="${esc(_tr(T, 'template.edit.placeholder.dir'))}" autocomplete="off">
                 <span id="etm-cwd-status" class="cwd-status"></span>
-                <button type="button" id="etm-btn-browse" class="btn" style="white-space:nowrap" onclick="etmOpenBrowse()">Browse</button>
+                <button type="button" id="etm-btn-browse" class="btn" style="white-space:nowrap" onclick="etmOpenBrowse()">${esc(_tr(T, 'btn.browse'))}</button>
               </div>
               <div id="etm-cwd-error" class="field-error"></div>
             </div>
             <div class="card" style="margin-bottom:20px;padding:14px 16px">
-              <div class="field"><label>Schedule Type</label>
+              <div class="field"><label>${esc(_tr(T, 'template.edit.field.scheduleType'))}</label>
                 <select id="etm-schtype" onchange="editTmplToggleFields()">
-                  <option value="cron">Cron</option>
-                  <option value="recurring">Recurring</option>
-                  <option value="delayed">Delayed</option>
+                  <option value="cron">${esc(_tr(T, 'template.type.cron'))}</option>
+                  <option value="recurring">${esc(_tr(T, 'template.type.recurring'))}</option>
+                  <option value="delayed">${esc(_tr(T, 'template.type.delayed'))}</option>
                 </select>
               </div>
               <div id="etm-cron-section" class="field">
-                <label>Cron Expression <span class="hl">*</span></label>
-                <input type="text" id="etm-cronexpr" placeholder="e.g. 0 9 * * 1-5" style="font-family:monospace">
+                <label>${esc(_tr(T, 'template.edit.field.cronExpr'))} <span class="hl">*</span></label>
+                <input type="text" id="etm-cronexpr" placeholder="${esc(_tr(T, 'template.edit.placeholder.cron'))}" style="font-family:monospace">
               </div>
               <div id="etm-recurring-section" class="field" style="display:none">
-                <label>Repeat every</label>
+                <label>${esc(_tr(T, 'template.edit.field.repeatEvery'))}</label>
                 <div class="field-inline">
                   <input type="number" id="etm-intervalval" value="6" min="1" style="width:80px;flex:none">
                   <select id="etm-intervalunit">
-                    <option value="minutes">minutes</option>
-                    <option value="hours" selected>hours</option>
-                    <option value="days">days</option>
+                    <option value="minutes">${esc(_tr(T, 'template.edit.unit.minutes'))}</option>
+                    <option value="hours" selected>${esc(_tr(T, 'template.edit.unit.hours'))}</option>
+                    <option value="days">${esc(_tr(T, 'template.edit.unit.days'))}</option>
                   </select>
                 </div>
               </div>
               <div id="etm-delayed-section" class="field" style="display:none">
-                <label>Run in (minutes)</label>
+                <label>${esc(_tr(T, 'template.edit.field.runIn'))}</label>
                 <input type="number" id="etm-delayval" value="30" min="1" style="width:100px">
               </div>
             </div>
             <div class="field-grid">
               <div class="field">
-                <label>Category</label>
+                <label>${esc(_tr(T, 'clone.field.category'))}</label>
                 <select id="etm-ca"><option value="general">general</option><option value="translate">translate</option><option value="generate">generate</option><option value="review">review</option><option value="test">test</option></select>
               </div>
               <div class="field">
-                <label>Max Retries</label>
+                <label>${esc(_tr(T, 'clone.field.maxRetries'))}</label>
                 <select id="etm-mr"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option></select>
               </div>
             </div>
             <div class="field-grid">
               <div class="field">
-                <label>Importance</label>
+                <label>${esc(_tr(T, 'clone.field.importance'))}</label>
                 <div class="field-inline">
                   <div class="stars" id="etm-stars-im"><input type="hidden" name="etm-im" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
-                  <span class="mu sm" id="etm-stars-im-label">Medium</span>
+                  <span class="mu sm" id="etm-stars-im-label">${esc(_tr(T, 'stars.medium'))}</span>
                 </div>
               </div>
               <div class="field">
-                <label>Urgency</label>
+                <label>${esc(_tr(T, 'clone.field.urgency'))}</label>
                 <div class="field-inline">
                   <div class="stars" id="etm-stars-ur"><input type="hidden" name="etm-ur" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
-                  <span class="mu sm" id="etm-stars-ur-label">Medium</span>
+                  <span class="mu sm" id="etm-stars-ur-label">${esc(_tr(T, 'stars.medium'))}</span>
                 </div>
               </div>
             </div>
-            <div class="field"><label>Status: <span id="etm-status" class="badge b-done">Enabled</span></label></div>
+            <div class="field"><label>${esc(_tr(T, 'template.edit.status'))} <span id="etm-status" class="badge b-done">${esc(_tr(T, 'status.enabled'))}</span></label></div>
           </div>
           <div id="etm-notify-section"></div>
           <div id="etm-browse-view" style="display:none;min-height:300px">
             <div class="ph" style="padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:4px">
-              <span class="mu sm" id="etm-browse-path">Home</span>
+              <span class="mu sm" id="etm-browse-path">${esc(_tr(T, 'browse.home'))}</span>
             </div>
             <div id="etm-browse-list" style="min-height:200px"></div>
             <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:10px">
-              <button class="btn" onclick="etmBrowseCancel()">Cancel</button>
-              <button class="rf" id="etm-browse-select" onclick="etmBrowseSelect()" disabled>Select this folder</button>
+              <button class="btn" onclick="etmBrowseCancel()">${esc(_tr(T, 'btn.cancel'))}</button>
+              <button class="rf" id="etm-browse-select" onclick="etmBrowseSelect()" disabled>${esc(_tr(T, 'btn.selectFolder'))}</button>
             </div>
           </div>
         </div>
         <div class="modal-footer" id="etm-modal-footer">
-          <button class="btn" onclick="document.getElementById('etm-modal').close()">Cancel</button>
-          <button class="rf" onclick="saveEditTemplate()">Save Changes</button>
+          <button class="btn" onclick="document.getElementById('etm-modal').close()">${esc(_tr(T, 'btn.cancel'))}</button>
+          <button class="rf" onclick="saveEditTemplate()">${esc(_tr(T, 'btn.saveChanges'))}</button>
         </div>
       </dialog>
 
@@ -1299,7 +1284,7 @@ app.get('/templates', async (c) => {
             fetch('/api/fs/validate?path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(v){
               if(v.valid){s.textContent='\u2705';s.style.color='#3fb950';e.textContent='';}
               else{s.textContent='\u274C';s.style.color='#f85149';e.textContent=v.error;}
-            }).catch(function(){s.textContent='\u274C';s.style.color='#f85149';e.textContent='Validation failed';});
+            }).catch(function(){s.textContent='\u274C';s.style.color='#f85149';e.textContent=_t('alert.validationFailed');});
           }
           document.getElementById('etm-cw').addEventListener('input',function(){
             clearTimeout(etmCwdTimeout);var p=this.value;
@@ -1326,14 +1311,14 @@ app.get('/templates', async (c) => {
           };
           function etmBrowseLoad(dirPath){
             var list=document.getElementById('etm-browse-list');
-            list.innerHTML='<div class="ta-center mu p30">Loading...</div>';
+            list.innerHTML='<div class="ta-center mu p30">'+_t('browse.loading')+'</div>';
             document.getElementById('etm-browse-select').disabled=true;
             var url='/api/fs/browse';if(dirPath)url+='?path='+encodeURIComponent(dirPath);
             fetch(url).then(function(r){return r.json()}).then(function(data){
-              document.getElementById('etm-browse-path').textContent=dirPath||'Home';
-              if(!data.entries||data.entries.length===0){list.innerHTML='<div class="ta-center mu p30">(empty directory)</div>';return;}
+              document.getElementById('etm-browse-path').textContent=dirPath||_t('browse.home');
+              if(!data.entries||data.entries.length===0){list.innerHTML='<div class="ta-center mu p30">'+_t('browse.empty')+'</div>';return;}
               var html='';
-              if(dirPath)html+='<div class="dir-item dir-up" data-dir="'+(etmBrowseStack.length>1?etmBrowseStack[etmBrowseStack.length-2]:'')+'">\u2190 ..</div>';
+              if(dirPath)html+='<div class="dir-item dir-up" data-dir="'+(etmBrowseStack.length>1?etmBrowseStack[etmBrowseStack.length-2]:'')+'">\u2190 '+_t('browse.parentDir')+'</div>';
               data.entries.forEach(function(e){html+='<div class="dir-item" data-dir="'+esc(e.path)+'">\uD83D\uDCC1 '+esc(e.name)+'</div>';});
               list.innerHTML=html;
               Array.from(list.querySelectorAll('.dir-item')).forEach(function(el){
@@ -1348,15 +1333,18 @@ app.get('/templates', async (c) => {
                 });
               });
               if(dirPath)document.getElementById('etm-browse-select').disabled=false;
-            }).catch(function(){list.innerHTML='<div class="ta-center mu" style="color:var(--red)">Failed to load directory</div>';});
+            }).catch(function(){list.innerHTML='<div class="ta-center mu" style="color:var(--red)">'+_t('browse.failedLoad')+'</div>';});
           }
         })();
       </script>`;
 
-    return c.html(renderLayout('Scheduled Tasks', 'templates', body));
+    return c.html(renderLayout(_tr(T, 'template.pageTitle'), 'templates', body, T));
 });
 
 app.get('/runs', async (c) => {
+    const cfg = loadConfig();
+    const locale = cfg.dashboard?.locale || 'en';
+    const T = getTranslations(locale);
     const page = Number(c.req.query('page') || '1');
     const range = c.req.query('range') || '';
     const limit = 50;
@@ -1387,7 +1375,7 @@ app.get('/runs', async (c) => {
 
     const total = Number(agg.totalRuns ?? 0);
     const totalPages = Math.ceil(total / limit);
-    const rangeLabel = range || 'all time';
+    const rangeLabel = range || _tr(T, 'runs.allTime');
 
     let rows = '';
     const logsHtml: string[] = [];
@@ -1396,9 +1384,9 @@ app.get('/runs', async (c) => {
             ? run.sessionId.slice(4, 7) + '***' + run.sessionId.slice(-3)
             : '-';
         const logBtn = run.log
-            ? `<button class="btn btn-sm" onclick="toggleLog(${run.id})">Log</button>`
+            ? `<button class="btn btn-sm" onclick="toggleLog(${run.id})">${esc(_tr(T, 'btn.log'))}</button>`
             : '';
-        const sessBtn = `<button class="btn btn-sm" onclick="viewSession(${run.id})">Session</button>`;
+        const sessBtn = `<button class="btn btn-sm" onclick="viewSession(${run.id})">${esc(_tr(T, 'btn.session'))}</button>`;
         const toolsList = run.toolsUsed
             ? (JSON.parse(run.toolsUsed) as string[]).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')
             : '<span class="mu sm">-</span>';
@@ -1421,47 +1409,50 @@ app.get('/runs', async (c) => {
           <td class="sm">${costStr}</td>
           <td class="sm">${formatDuration(run.startedAt, run.finishedAt)}</td>
           <td class="sm mu">${run.heartbeatAt ? timeAgo(run.heartbeatAt) : '-'}</td>
-          <td><button class="btn btn-sm" onclick="showRunDetail(${run.id})">Details</button>${logBtn}${sessBtn}</td>
+          <td><button class="btn btn-sm" onclick="showRunDetail(${run.id})">${esc(_tr(T, 'btn.details'))}</button>${logBtn}${sessBtn}</td>
         </tr>`;
 
         if (run.log) {
             logsHtml.push(`<div id="log-${run.id}" style="display:none" class="mt8">
-              <div class="panel"><div class="ph"><h3>Run #${run.id} Log — ${run.taskName}</h3></div>
+              <div class="panel"><div class="ph"><h3>${esc(_tr(T, 'runs.logTitle', run.id, run.taskName))}</h3></div>
               <div class="log-box">${run.log.replace(/</g, '&lt;')}</div></div></div>`);
         }
     }
 
     const qp = range ? `?range=${range}` : '';
     let paging = `<div class="pn">`;
-    if (page > 1) paging += `<a href="/runs?page=${page - 1}${qp ? '&' + qp.slice(1) : ''}" class="btn">Prev</a>`;
-    paging += `<span class="mu sm">Page ${page} / ${totalPages} (${total} records, ${rangeLabel})</span>`;
-    if (page < totalPages) paging += `<a href="/runs?page=${page + 1}${qp ? '&' + qp.slice(1) : ''}" class="btn">Next</a>`;
+    if (page > 1) paging += `<a href="/runs?page=${page - 1}${qp ? '&' + qp.slice(1) : ''}" class="btn">${esc(_tr(T, 'btn.prev'))}</a>`;
+    paging += `<span class="mu sm">${esc(_tr(T, 'pagination.pageRecords', page, totalPages, total, rangeLabel))}</span>`;
+    if (page < totalPages) paging += `<a href="/runs?page=${page + 1}${qp ? '&' + qp.slice(1) : ''}" class="btn">${esc(_tr(T, 'btn.next'))}</a>`;
     paging += `</div>`;
 
     const colCount = runs.length > 0 ? 10 : 10;
     const emptyRow = runs.length === 0
-        ? `<tr><td colspan="${colCount}" class="ta-center mu p30">No execution records</td></tr>`
+        ? `<tr><td colspan="${colCount}" class="ta-center mu p30">${esc(_tr(T, 'runs.empty'))}</td></tr>`
         : '';
 
     const body = `
-      ${RangeBar(range, '/runs', '')}
+      ${RangeBar(range, '/runs', '', T)}
       <div class="g4">
-        <div class="card"><div class="sv" style="color:var(--yellow)">${formatCost(agg.totalCost)}</div><div class="sl">Total Cost (${rangeLabel})</div></div>
-        <div class="card"><div class="sv" style="color:var(--blue)">${formatTokens(agg.totalTokens)}</div><div class="sl">Total Tokens (${rangeLabel})</div></div>
-        <div class="card"><div class="sv" style="color:var(--green)">${agg.doneCount}</div><div class="sl">Done (${rangeLabel})</div></div>
-        <div class="card"><div class="sv" style="color:var(--red)">${agg.failedCount}</div><div class="sl">Failed (${rangeLabel})</div></div>
+        <div class="card"><div class="sv" style="color:var(--yellow)">${formatCost(agg.totalCost)}</div><div class="sl">${esc(_tr(T, 'runs.stats.totalCost', rangeLabel))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--blue)">${formatTokens(agg.totalTokens)}</div><div class="sl">${esc(_tr(T, 'runs.stats.totalTokens', rangeLabel))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--green)">${agg.doneCount}</div><div class="sl">${esc(_tr(T, 'runs.stats.done', rangeLabel))}</div></div>
+        <div class="card"><div class="sv" style="color:var(--red)">${agg.failedCount}</div><div class="sl">${esc(_tr(T, 'runs.stats.failed', rangeLabel))}</div></div>
       </div>
       <div class="panel"><table>
-        <thead><tr><th width="50">Run</th><th>Task</th><th>Agent</th><th>Tools</th><th width="90">Status</th><th width="90">Tokens</th><th width="80">Cost</th><th width="70">Duration</th><th>Heartbeat</th><th>Actions</th></tr></thead>
+        <thead><tr><th width="50">${esc(_tr(T, 'table.run'))}</th><th>${esc(_tr(T, 'table.task'))}</th><th>${esc(_tr(T, 'table.agent'))}</th><th>${esc(_tr(T, 'table.tools'))}</th><th width="90">${esc(_tr(T, 'table.status'))}</th><th width="90">${esc(_tr(T, 'table.tokens'))}</th><th width="80">${esc(_tr(T, 'table.cost'))}</th><th width="70">${esc(_tr(T, 'table.duration'))}</th><th>${esc(_tr(T, 'table.heartbeat'))}</th><th>${esc(_tr(T, 'table.actions'))}</th></tr></thead>
         <tbody>${rows}${emptyRow}</tbody>
       </table></div>
       ${logsHtml.join('')}
       ${paging}`;
 
-    return c.html(renderLayout('Execution Logs', 'runs', body));
+    return c.html(renderLayout(_tr(T, 'runs.pageTitle'), 'runs', body, T));
 });
 
 app.get('/system', async (c) => {
+    const cfg = loadConfig();
+    const locale = cfg.dashboard?.locale || 'en';
+    const T = getTranslations(locale);
     const config = loadConfig();
     const stats = await TaskService.stats({});
     const runningRuns = await TaskRunService.getAllRunningRuns();
@@ -1486,79 +1477,85 @@ app.get('/system', async (c) => {
         }
     }
 
-    const schedulerStatus = config.scheduler.enabled
-        ? '<span class="badge b-done">Enabled</span>'
-        : '<span class="badge b-cancelled">Disabled</span>';
-    const configFileStatus = configExists
-        ? '<span class="badge b-done">Yes</span>'
-        : '<span class="badge b-cancelled">No (using defaults)</span>';
+    const schedulerStatus = config.scheduler.enabled ? '<span class="badge b-done">'+esc(_tr(T, 'status.enabled'))+'</span>' : '<span class="badge b-cancelled">'+esc(_tr(T, 'status.disabled'))+'</span>';
+    const configFileStatus = configExists ? '<span class="badge b-done">'+esc(_tr(T, 'status.yes'))+'</span>' : '<span class="badge b-cancelled">'+esc(_tr(T, 'status.noDefaults'))+'</span>';
 
     const body = `
       <form id="config-form" onsubmit="event.preventDefault();saveConfig();">
       <div class="g3">
         <div class="card">
-          <h3 style="margin:0 0 12px;font-size:14px">Worker Config</h3>
-          <div class="form-row"><label>Max Concurrency<span class="tip" onmouseenter="showTip(this,'Maximum number of tasks that can run simultaneously. Increasing this uses more CPU and memory.')" onmouseleave="hideTip()">i</span></label><input type="number" name="mc" value="${config.worker.maxConcurrency}" min="1" max="20" style="width:80px"></div>
-          <div class="form-row"><label>Poll Interval (ms)<span class="tip" onmouseenter="showTip(this,'How often the worker checks the queue for new tasks to execute. Lower values reduce latency but increase CPU usage.')" onmouseleave="hideTip()">i</span></label><input type="number" name="pi" value="${config.worker.pollIntervalMs}" min="100" style="width:100px"></div>
-          <div class="form-row"><label>Heartbeat (sec)<span class="tip" onmouseenter="showTip(this,'How often a running task signals that it is still alive. If it stops, the Watchdog will mark the task as dead after Heartbeat Timeout.')" onmouseleave="hideTip()">i</span></label><input type="number" name="hi" value="${config.worker.heartbeatIntervalMs / 1000}" min="5" style="width:100px"></div>
-          <div class="form-row"><label>Task Timeout (min)<span class="tip" onmouseenter="showTip(this,'Maximum time a task can run before being forcefully killed and marked as dead.')" onmouseleave="hideTip()">i</span></label><input type="number" name="to" value="${config.worker.taskTimeoutMs / 60000}" min="1" style="width:100px"></div>
+          <h3 style="margin:0 0 12px;font-size:14px">${esc(_tr(T, 'system.worker.title'))}</h3>
+          <div class="form-row"><label>${esc(_tr(T, 'system.worker.maxConcurrency'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.maxConcurrency'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="mc" value="${config.worker.maxConcurrency}" min="1" max="20" style="width:80px"></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.worker.pollInterval'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.pollInterval'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="pi" value="${config.worker.pollIntervalMs}" min="100" style="width:100px"></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.worker.heartbeat'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.heartbeat'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="hi" value="${config.worker.heartbeatIntervalMs / 1000}" min="5" style="width:100px"></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.worker.taskTimeout'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.taskTimeout'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="to" value="${config.worker.taskTimeoutMs / 60000}" min="1" style="width:100px"></div>
         </div>
         <div class="card">
-          <h3 style="margin:0 0 12px;font-size:14px">Scheduler Config</h3>
-          <div class="form-row"><label>Enabled<span class="tip" onmouseenter="showTip(this,'When disabled, the scheduler will not create new tasks automatically from cron templates.')" onmouseleave="hideTip()">i</span></label><input type="checkbox" name="se" ${config.scheduler.enabled ? 'checked' : ''}></div>
-          <div class="form-row"><label>Check Interval<span class="tip" onmouseenter="showTip(this,'How often the scheduler checks if any cron template is due to fire and create a new task.')" onmouseleave="hideTip()">i</span></label><input type="number" name="si" value="${config.scheduler.checkIntervalMs}" min="100" style="width:100px"></div>
-          <div class="form-row"><label>Catch Up<span class="tip" onmouseenter="showTip(this,'Behavior for missed runs after downtime. next: skip all missed, wait for the next scheduled time. latest: run only the most recent missed execution. all: run every missed execution in sequence.')" onmouseleave="hideTip()">i</span></label><select name="cu" style="width:100px">
+          <h3 style="margin:0 0 12px;font-size:14px">${esc(_tr(T, 'system.scheduler.title'))}</h3>
+          <div class="form-row"><label>${esc(_tr(T, 'system.scheduler.enabled'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.schedulerEnabled'))}')" onmouseleave="hideTip()">i</span></label><input type="checkbox" name="se" ${config.scheduler.enabled ? 'checked' : ''}></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.scheduler.checkInterval'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.schedulerInterval'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="si" value="${config.scheduler.checkIntervalMs}" min="100" style="width:100px"></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.scheduler.catchUp'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.catchUp'))}')" onmouseleave="hideTip()">i</span></label><select name="cu" style="width:100px">
             <option value="next" ${config.scheduler.catchUp === 'next' ? 'selected' : ''}>next</option>
             <option value="all" ${config.scheduler.catchUp === 'all' ? 'selected' : ''}>all</option>
             <option value="latest" ${config.scheduler.catchUp === 'latest' ? 'selected' : ''}>latest</option>
           </select></div>
-          <div class="ir"><span class="ik">Active Templates<span class="tip" onmouseenter="showTip(this,'Number of cron templates currently enabled and scheduling tasks automatically.')" onmouseleave="hideTip()">i</span></span><span class="iv">${templates.filter(t => t.enabled).length} / ${templates.length}</span></div>
+          <div class="ir"><span class="ik">${esc(_tr(T, 'system.scheduler.activeTemplates'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.activeTemplates'))}')" onmouseleave="hideTip()">i</span></span><span class="iv">${templates.filter(t => t.enabled).length} / ${templates.length}</span></div>
         </div>
         <div class="card">
-          <h3 style="margin:0 0 12px;font-size:14px">Watchdog Config</h3>
-          <div class="form-row"><label>Heartbeat Timeout<span class="tip" onmouseenter="showTip(this,'If a running task sends no heartbeat for this many seconds, the Watchdog marks it as dead and frees its concurrency slot.')" onmouseleave="hideTip()">i</span></label><input type="number" name="wt" value="${config.watchdog.heartbeatTimeoutMs / 1000}" min="10" style="width:100px"></div>
-          <div class="form-row"><label>Cleanup Interval<span class="tip" onmouseenter="showTip(this,'How often the Watchdog scans for stuck or dead tasks and cleans up old execution logs.')" onmouseleave="hideTip()">i</span></label><input type="number" name="wc" value="${config.watchdog.cleanupIntervalMs / 1000}" min="10" style="width:100px"></div>
-          <div class="form-row"><label>Retention (days)<span class="tip" onmouseenter="showTip(this,'Execution logs older than this number of days are automatically deleted to keep the database size in check.')" onmouseleave="hideTip()">i</span></label><input type="number" name="rd" value="${config.watchdog.retentionDays}" min="1" style="width:100px"></div>
-          <div class="ir"><span class="ik">Log Format<span class="tip" onmouseenter="showTip(this,'Output format for structured logs written to disk. json is machine-readable; text is more human-friendly.')" onmouseleave="hideTip()">i</span></span><span class="iv">${config.logging.format}</span></div>
+          <h3 style="margin:0 0 12px;font-size:14px">${esc(_tr(T, 'system.watchdog.title'))}</h3>
+          <div class="form-row"><label>${esc(_tr(T, 'system.watchdog.heartbeatTimeout'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.heartbeatTimeout'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="wt" value="${config.watchdog.heartbeatTimeoutMs / 1000}" min="10" style="width:100px"></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.watchdog.cleanupInterval'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.cleanupInterval'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="wc" value="${config.watchdog.cleanupIntervalMs / 1000}" min="10" style="width:100px"></div>
+          <div class="form-row"><label>${esc(_tr(T, 'system.watchdog.retention'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.retention'))}')" onmouseleave="hideTip()">i</span></label><input type="number" name="rd" value="${config.watchdog.retentionDays}" min="1" style="width:100px"></div>
+          <div class="ir"><span class="ik">${esc(_tr(T, 'system.watchdog.logFormat'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.logFormat'))}')" onmouseleave="hideTip()">i</span></span><span class="iv">${config.logging.format}</span></div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:24px;padding:16px">
+        <h3 style="margin:0 0 12px;font-size:14px">${esc(_tr(T, 'lang.label'))}</h3>
+        <div class="form-row">
+          <label for="locale-select">${esc(_tr(T, 'lang.label'))}</label>
+          <select name="locale" id="locale-select" style="width:200px">
+            <option value="en" ${locale === 'en' ? 'selected' : ''}>${esc(_tr(T, 'lang.en'))}</option>
+            <option value="pt-BR" ${locale === 'pt-BR' ? 'selected' : ''}>${esc(_tr(T, 'lang.ptBR'))}</option>
+          </select>
         </div>
       </div>
       <div style="text-align:center;margin-bottom:24px">
-        <button type="submit" class="rf" style="font-size:14px;padding:10px 30px">Save Config</button>
-        <span class="mu sm" style="margin-left:12px">Restart Gateway to apply changes</span>
+        <button type="submit" class="rf" style="font-size:14px;padding:10px 30px">${esc(_tr(T, 'btn.saveConfig'))}</button>
+        <span class="mu sm" style="margin-left:12px">${esc(_tr(T, 'system.restartHint'))}</span>
       </div>
       </form>
 
       <div class="panel mt8">
-        <div class="ph"><h3>Running Tasks (${runningRuns.length} / ${config.worker.maxConcurrency} concurrency)</h3></div>
+        <div class="ph"><h3>${esc(_tr(T, 'system.running.title', runningRuns.length, config.worker.maxConcurrency))}</h3></div>
         ${runningRuns.length > 0 ? `<table>
-          <thead><tr><th>Run</th><th>Task</th><th>Session</th><th>Model</th><th>Started</th><th>Last Heartbeat</th><th>PID</th><th>Duration</th></tr></thead>
+          <thead><tr><th>${esc(_tr(T, 'table.run'))}</th><th>${esc(_tr(T, 'table.task'))}</th><th>${esc(_tr(T, 'table.session'))}</th><th>${esc(_tr(T, 'table.model'))}</th><th>${esc(_tr(T, 'table.started'))}</th><th>${esc(_tr(T, 'table.heartbeat'))}</th><th>${esc(_tr(T, 'table.pid'))}</th><th>${esc(_tr(T, 'table.duration'))}</th></tr></thead>
           <tbody>${runRows}</tbody>
-        </table>` : `<div class="ta-center mu p30">No running tasks</div>`}
+        </table>` : `<div class="ta-center mu p30">${esc(_tr(T, 'system.running.empty'))}</div>`}
       </div>
 
       <div class="card mt16">
-        <h3 style="margin:0 0 12px;font-size:14px">Task Statistics</h3>
+        <h3 style="margin:0 0 12px;font-size:14px">${esc(_tr(T, 'system.stats.title'))}</h3>
         <div class="g4 mb0">
-          <div><span class="mu sm">Pending:</span> <strong>${stats.pending || 0}</strong></div>
-          <div><span class="mu sm">Running:</span> <strong style="color:var(--blue)">${stats.running || 0}</strong></div>
-          <div><span class="mu sm">Done:</span> <strong style="color:var(--green)">${stats.done || 0}</strong></div>
-          <div><span class="mu sm">Failed/Dead:</span> <strong style="color:var(--red)">${(stats.failed || 0) + (stats.dead_letter || 0)}</strong></div>
+          <div><span class="mu sm">${esc(_tr(T, 'system.stats.pending'))}</span> <strong>${stats.pending || 0}</strong></div>
+          <div><span class="mu sm">${esc(_tr(T, 'system.stats.running'))}</span> <strong style="color:var(--blue)">${stats.running || 0}</strong></div>
+          <div><span class="mu sm">${esc(_tr(T, 'system.stats.done'))}</span> <strong style="color:var(--green)">${stats.done || 0}</strong></div>
+          <div><span class="mu sm">${esc(_tr(T, 'system.stats.failed'))}</span> <strong style="color:var(--red)">${(stats.failed || 0) + (stats.dead_letter || 0)}</strong></div>
         </div>
       </div>
 
       <div class="card mt16">
-        <h3 style="margin:0 0 12px;font-size:14px">Config File</h3>
-        <div class="ir"><span class="ik">Path<span class="tip" onmouseenter="showTip(this,'Location on disk where OpenCron reads and writes its configuration file.')" onmouseleave="hideTip()">i</span></span><span class="iv m sm">${CONFIG_PATH}</span></div>
-        <div class="ir"><span class="ik">Exists<span class="tip" onmouseenter="showTip(this,'Whether the config file exists on disk. If not, OpenCron is running with built-in default values. Save Config to create it.')" onmouseleave="hideTip()">i</span></span><span class="iv">${configFileStatus}</span></div>
+        <h3 style="margin:0 0 12px;font-size:14px">${esc(_tr(T, 'system.configFile.title'))}</h3>
+        <div class="ir"><span class="ik">${esc(_tr(T, 'system.configFile.path'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.configPath'))}')" onmouseleave="hideTip()">i</span></span><span class="iv m sm">${CONFIG_PATH}</span></div>
+        <div class="ir"><span class="ik">${esc(_tr(T, 'system.configFile.exists'))}<span class="tip" onmouseenter="showTip(this,'${esc(_tr(T, 'tasks.tooltip.configExists'))}')" onmouseleave="hideTip()">i</span></span><span class="iv">${configFileStatus}</span></div>
       </div>
 
       <div class="card mt16" style="border-color:var(--red)">
-        <h3 style="margin:0 0 12px;font-size:14px;color:var(--red)">Danger Zone</h3>
-        <p class="sm mu" style="margin:0 0 12px">Clear ALL task data (tasks + task_runs + task_templates). This cannot be undone.</p>
-        <button class="btn btn-danger" style="border-color:var(--red);color:var(--red);padding:6px 16px" onclick="clearDatabase()">Clear Database</button>
+        <h3 style="margin:0 0 12px;font-size:14px;color:var(--red)">${esc(_tr(T, 'system.danger.title'))}</h3>
+        <p class="sm mu" style="margin:0 0 12px">${esc(_tr(T, 'system.danger.desc'))}</p>
+        <button class="btn btn-danger" style="border-color:var(--red);color:var(--red);padding:6px 16px" onclick="clearDatabase()">${esc(_tr(T, 'btn.clearDatabase'))}</button>
       </div>`;
 
-    return c.html(renderLayout('System Status', 'system', body));
+    return c.html(renderLayout(_tr(T, 'system.pageTitle'), 'system', body, T));
 });
 
 app.get('/notifications', async (c) => {
@@ -1793,7 +1790,11 @@ app.get('/notifications', async (c) => {
         }
       </script>`;
 
-    return c.html(renderLayout('Notifications', 'notifications', body));
+    const _cfgN = loadConfig();
+    const _localeN = _cfgN.dashboard?.locale || 'en';
+    const _TN = getTranslations(_localeN);
+    const bodyN = body;
+    return c.html(renderLayout('Notifications', 'notifications', bodyN, _TN));
 });
 
 app.get('/api/tasks/:id', async (c) => {
@@ -1953,7 +1954,9 @@ app.put('/api/config', async (c) => {
         const bS = (body.scheduler ?? {}) as Record<string, unknown>;
         const bD = (body.watchdog ?? {}) as Record<string, unknown>;
         const bN = (body.notifications ?? {}) as Record<string, unknown>;
-        const merged = { ...current, ...body, worker: { ...curW, ...bW }, scheduler: { ...curS, ...bS }, watchdog: { ...curD, ...bD }, notifications: { ...curN, ...bN } };
+        const curDash = (current.dashboard ?? {}) as Record<string, unknown>;
+        const bDash = (body.dashboard ?? {}) as Record<string, unknown>;
+        const merged = { ...current, ...body, worker: { ...curW, ...bW }, scheduler: { ...curS, ...bS }, watchdog: { ...curD, ...bD }, notifications: { ...curN, ...bN }, dashboard: { ...curDash, ...bDash } };
         writeConfig(merged);
         return c.json({ success: true });
     } catch (err) {
@@ -2094,6 +2097,9 @@ app.post('/api/templates', async (c) => {
 });
 
 app.get('/new', (c) => {
+    const _cfgNew = loadConfig();
+    const localeNew = _cfgNew.dashboard?.locale || 'en';
+    const T = getTranslations(localeNew);
     const agents = getAgents();
     const models = getModels();
 
@@ -2475,11 +2481,14 @@ app.get('/new', (c) => {
           return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
       </script>`;
-    return c.html(renderLayout('New Task', 'tasks', body));
+    return c.html(renderLayout(_tr(T, 'newTask.pageTitle'), 'tasks', body, T));
 });
 
 app.get('/runs/:id/session', async (c) => {
     const id = Number(c.req.param('id'));
+    const _cfgS = loadConfig();
+    const localeS = _cfgS.dashboard?.locale || 'en';
+    const T = getTranslations(localeS);
     const { taskRuns: tr, tasks: tk } = schema;
     const rows = await db.select({
         id: tr.id, taskId: tr.taskId, sessionId: tr.sessionId, model: tr.model,
@@ -2490,7 +2499,7 @@ app.get('/runs/:id/session', async (c) => {
         taskName: tk.name, taskAgent: tk.agent,
     }).from(tr).innerJoin(tk, eq(tr.taskId, tk.id)).where(eq(tr.id, id));
     const run = rows[0];
-    if (!run) return c.html(renderLayout('Session', 'runs', '<div class="ta-center mu p30">Run not found.</div>'));
+    if (!run) return c.html(renderLayout(_tr(T, 'session.pageTitle', id), 'runs', `<div class="ta-center mu p30">${esc(_tr(T, 'session.notFound'))}</div>`, T));
 
     let messages: any[] = [];
     if (run.messagesJson) {
@@ -2590,7 +2599,7 @@ app.get('/runs/:id/session', async (c) => {
 
     html += `</div></div>`;
 
-    return c.html(renderLayout(`Session — Task #${run.taskId}`, 'runs', html));
+    return c.html(renderLayout(_tr(T, 'session.pageTitle', run.taskId), 'runs', html, T));
 });
 
 export const dashboardApp = app;

@@ -345,6 +345,40 @@ export class TaskService {
         return stats;
     }
 
+    static async update(id: number, data: Partial<Omit<NewTask, 'id' | 'status' | 'createdAt' | 'startedAt' | 'finishedAt' | 'retryAfter' | 'batchId' | 'dependsOn' | 'templateId' | 'scheduledAt' | 'resultLog' | 'retryCount'>>, scope: { cwd?: string } = {}): Promise<Task | null> {
+        const current = await this.getById(id, scope);
+        if (!current) return null;
+
+        const allowedFields: Record<string, keyof typeof current> = {
+            name: 'name',
+            agent: 'agent',
+            model: 'model',
+            prompt: 'prompt',
+            cwd: 'cwd',
+            category: 'category',
+            importance: 'importance',
+            urgency: 'urgency',
+            maxRetries: 'maxRetries',
+        };
+
+        const updateData: Record<string, unknown> = {};
+        for (const [key, field] of Object.entries(allowedFields)) {
+            if (data[key as keyof typeof data] !== undefined) {
+                updateData[field as string] = data[key as keyof typeof data];
+            }
+        }
+
+        if (Object.keys(updateData).length === 0) return current;
+
+        const conditions = [eq(tasks.id, id), ...this.buildScopeWhere(scope)];
+        const result = await db
+            .update(tasks)
+            .set(updateData as any)
+            .where(and(...conditions))
+            .returning();
+        return result[0] || null;
+    }
+
     static async delete(id: number, scope: { cwd?: string } = {}): Promise<boolean> {
         const conditions = [eq(tasks.id, id), ...this.buildScopeWhere(scope)];
         const result = await db.delete(tasks).where(and(...conditions)).returning();

@@ -56,6 +56,56 @@ export class TaskTemplateService {
         return result[0] || null;
     }
 
+    static async update(id: number, data: Partial<Omit<NewTaskTemplate, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt' | 'enabled'>>): Promise<TaskTemplate | null> {
+        const current = await this.getById(id);
+        if (!current) return null;
+
+        const allowedFields: Record<string, keyof typeof current> = {
+            name: 'name',
+            agent: 'agent',
+            model: 'model',
+            prompt: 'prompt',
+            cwd: 'cwd',
+            category: 'category',
+            importance: 'importance',
+            urgency: 'urgency',
+            maxRetries: 'maxRetries',
+            scheduleType: 'scheduleType',
+            cronExpr: 'cronExpr',
+            intervalMs: 'intervalMs',
+            runAt: 'runAt',
+            maxInstances: 'maxInstances',
+            retryBackoffMs: 'retryBackoffMs',
+        };
+
+        const updateData: Record<string, unknown> = { updatedAt: Date.now() };
+        for (const [key, field] of Object.entries(allowedFields)) {
+            if (data[key as keyof typeof data] !== undefined) {
+                updateData[field as string] = data[key as keyof typeof data];
+            }
+        }
+
+        const result = await db
+            .update(taskTemplates)
+            .set(updateData as any)
+            .where(eq(taskTemplates.id, id))
+            .returning();
+        const updated = result[0] || null;
+
+        if (updated) {
+            const nextRunAt = this.calculateNextRunAt(
+                (data.scheduleType ?? current.scheduleType) as ScheduleType,
+                { ...current, ...updateData },
+            );
+            if (nextRunAt != null) {
+                await db.update(taskTemplates).set({ nextRunAt }).where(eq(taskTemplates.id, id));
+                updated.nextRunAt = nextRunAt;
+            }
+        }
+
+        return updated;
+    }
+
     static async delete(id: number): Promise<boolean> {
         const result = await db.delete(taskTemplates).where(eq(taskTemplates.id, id)).returning();
         return result.length > 0;

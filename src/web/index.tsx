@@ -243,6 +243,162 @@ async function deleteTmpl(id){if(!confirm('Delete this template? This cannot be 
 async function triggerTmpl(id){if(!confirm('Trigger now?'))return;const r=await fetch('/api/templates/'+id+'/trigger',{method:'POST'});const d=await r.json();if(d.success){alert('Task #'+d.taskId+' created');location.reload();}else{alert('Trigger failed');}}
 function toggleLog(id){const el=document.getElementById('log-'+id);el.style.display=el.style.display==='none'?'block':'none';}
 
+
+
+async function cloneTask(id){
+  try{
+    const [rTask, rAgents] = await Promise.all([
+      fetch('/api/tasks/'+id),
+      fetch('/api/agents'),
+    ]);
+    const t=await rTask.json();
+    const agents=await rAgents.json();
+    document.getElementById('et-id').value=t.id;
+    document.getElementById('et-name').value='[Clone] '+t.name;
+    var agSel=document.getElementById('et-ag');
+    agSel.innerHTML='<option value="">— Select an agent —</option>';
+    agents.forEach(function(a){
+      var opt=document.createElement('option');
+      opt.value=a.name;opt.textContent=a.name+(a.description?' — '+a.description:'');
+      if(a.name===t.agent)opt.selected=true;
+      agSel.appendChild(opt);
+    });
+    document.getElementById('et-mo').value=t.model||'default';
+    document.getElementById('et-pr').value=t.prompt||'';
+    document.getElementById('et-cw').value=t.cwd||'';
+    document.getElementById('et-ca').value=t.category||'general';
+    document.getElementById('et-mr').value=t.maxRetries||3;
+    document.getElementById('et-stars-im').querySelector('input[type=hidden]').value=t.importance||3;
+    document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value=t.urgency||3;
+    initStars('et-stars-im');initStars('et-stars-ur');
+    document.getElementById('et-modal').showModal();
+  }catch(e){alert('Failed to load task: '+e.message);}
+}
+
+async function saveCloneTask(){
+  var cwdRaw=document.getElementById('et-cw').value.trim();
+  if(cwdRaw){
+    try{
+      var vr=await fetch('/api/fs/validate?path='+encodeURIComponent(cwdRaw));
+      var vd=await vr.json();
+      if(!vd.valid){alert('Invalid directory: '+vd.error);return;}
+    }catch(e){alert('Validation error: '+e.message);return;}
+  }
+  var data={
+    name:document.getElementById('et-name').value.trim(),
+    agent:document.getElementById('et-ag').value.trim(),
+    model:document.getElementById('et-mo').value.trim(),
+    prompt:document.getElementById('et-pr').value.trim(),
+    cwd:cwdRaw||null,
+    category:document.getElementById('et-ca').value,
+    maxRetries:parseInt(document.getElementById('et-mr').value)||3,
+    importance:parseInt(document.getElementById('et-stars-im').querySelector('input[type=hidden]').value)||3,
+    urgency:parseInt(document.getElementById('et-stars-ur').querySelector('input[type=hidden]').value)||3,
+  };
+  if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+  try{
+    const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const d=await r.json();
+    if(d.success){document.getElementById('et-modal').close();document.getElementById('toast').textContent='Task #'+d.taskId+' created (Clone)';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){location.reload();},1500);}
+    else{alert('Create failed: '+d.error);}
+  }catch(e){alert('Create failed: '+e.message);}
+}
+
+async function editTemplate(id){
+  try{
+    const [rTmpl, rAgents, rModels]=await Promise.all([
+      fetch('/api/templates/'+id),
+      fetch('/api/agents'),
+      fetch('/api/models'),
+    ]);
+    const t=await rTmpl.json();
+    const agents=await rAgents.json();
+    const models=await rModels.json();
+    document.getElementById('etm-id').value=t.id;
+    document.getElementById('etm-name').value=t.name||'';
+    var agSel=document.getElementById('etm-ag');
+    agSel.innerHTML='<option value="">— Select an agent —</option>';
+    agents.forEach(function(a){
+      var opt=document.createElement('option');
+      opt.value=a.name;opt.textContent=a.name+(a.description?' — '+a.description:'');
+      if(a.name===t.agent)opt.selected=true;
+      agSel.appendChild(opt);
+    });
+    document.getElementById('etm-mo').value=t.model||'default';
+    var dl=document.getElementById('etm-model-suggestions');dl.innerHTML='';
+    models.forEach(function(m){
+      var opt=document.createElement('option');opt.value=m.id;opt.textContent=m.label;dl.appendChild(opt);
+    });
+    document.getElementById('etm-pr').value=t.prompt||'';
+    document.getElementById('etm-cw').value=t.cwd||'';
+    document.getElementById('etm-ca').value=t.category||'general';
+    document.getElementById('etm-mr').value=t.maxRetries||3;
+    document.getElementById('etm-stars-im').querySelector('input[type=hidden]').value=t.importance||3;
+    document.getElementById('etm-stars-ur').querySelector('input[type=hidden]').value=t.urgency||3;
+    initStars('etm-stars-im');initStars('etm-stars-ur');
+    document.getElementById('etm-schtype').value=t.scheduleType||'cron';
+    document.getElementById('etm-cronexpr').value=t.cronExpr||'';
+    document.getElementById('etm-intervalval').value=t.intervalMs?Math.floor(t.intervalMs/60000):6;
+    document.getElementById('etm-intervalunit').value=t.intervalMs?(t.intervalMs%86400000===0?'days':t.intervalMs%3600000===0?'hours':'minutes'):'hours';
+    document.getElementById('etm-delayval').value=t.runAt?Math.floor(Math.max((t.runAt-Date.now())/60000,1))||30:30;
+    t.enabled?document.getElementById('etm-status').textContent='Enabled':document.getElementById('etm-status').textContent='Disabled';
+    editTmplToggleFields();
+    document.getElementById('etm-modal').showModal();
+  }catch(e){alert('Failed to load template: '+e.message);}
+}
+
+function editTmplToggleFields(){
+  const type=document.getElementById('etm-schtype').value;
+  document.getElementById('etm-cron-section').style.display=type==='cron'?'block':'none';
+  document.getElementById('etm-recurring-section').style.display=type==='recurring'?'block':'none';
+  document.getElementById('etm-delayed-section').style.display=type==='delayed'?'block':'none';
+}
+
+async function saveEditTemplate(){
+  const id=document.getElementById('etm-id').value;
+  var cwdRaw=document.getElementById('etm-cw').value.trim();
+  if(cwdRaw){
+    try{
+      var vr=await fetch('/api/fs/validate?path='+encodeURIComponent(cwdRaw));
+      var vd=await vr.json();
+      if(!vd.valid){alert('Invalid directory: '+vd.error);return;}
+    }catch(e){alert('Validation error: '+e.message);return;}
+  }
+  var data={
+    name:document.getElementById('etm-name').value.trim(),
+    agent:document.getElementById('etm-ag').value.trim(),
+    model:document.getElementById('etm-mo').value.trim(),
+    prompt:document.getElementById('etm-pr').value.trim(),
+    cwd:cwdRaw||null,
+    category:document.getElementById('etm-ca').value,
+    maxRetries:parseInt(document.getElementById('etm-mr').value)||3,
+    importance:parseInt(document.getElementById('etm-stars-im').querySelector('input[type=hidden]').value)||3,
+    urgency:parseInt(document.getElementById('etm-stars-ur').querySelector('input[type=hidden]').value)||3,
+    scheduleType:document.getElementById('etm-schtype').value,
+  };
+  if(!data.name||!data.agent||!data.prompt){alert('Name, Agent, and Prompt are required.');return;}
+  const mults={minutes:60000,hours:3600000,days:86400000};
+  if(data.scheduleType==='cron'){
+    data.cronExpr=document.getElementById('etm-cronexpr').value.trim();
+    if(!data.cronExpr){alert('Cron expression is required.');return;}
+  }else if(data.scheduleType==='recurring'){
+    const v=parseInt(document.getElementById('etm-intervalval').value)||0;
+    const u=document.getElementById('etm-intervalunit').value;
+    if(v<=0){alert('Interval value must be greater than 0.');return;}
+    data.intervalMs=v*mults[u];
+  }else if(data.scheduleType==='delayed'){
+    const v=parseInt(document.getElementById('etm-delayval').value)||0;
+    if(v<=0){alert('Delay value must be greater than 0.');return;}
+    data.runAt=Date.now()+v*60000;
+  }
+  try{
+    const r=await fetch('/api/templates/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const d=await r.json();
+    if(d.success){document.getElementById('etm-modal').close();document.getElementById('toast').textContent='Template #'+id+' updated successfully';document.getElementById('toast').className='toast toast-ok';document.getElementById('toast').style.display='block';setTimeout(function(){location.reload();},1500);}
+    else{alert('Update failed: '+d.error);}
+  }catch(e){alert('Update failed: '+e.message);}
+}
+
 async function clearDatabase(){
   if(!confirm('Clear all task data? This cannot be undone!'))return;
   if(!confirm('Final confirmation: ALL tasks, runs and templates will be deleted.'))return;
@@ -488,6 +644,7 @@ app.get('/', async (c) => {
           <td>
             <button class="btn btn-sm" onclick="showDetail(${task.id})">Details</button>
             ${sessionBtn}
+            ${task.status !== 'running' ? `<button class="btn btn-sm" onclick="cloneTask(${task.id})">Clone</button>` : ''}
             ${(task.status === 'failed' || task.status === 'dead_letter') ? `<button class="btn btn-sm btn-warn" onclick="retryTask(${task.id})">Retry</button>` : ''}
             <button class="btn btn-sm btn-danger" onclick="deleteTask(${task.id})">Delete</button>
           </td></tr>`;
@@ -523,6 +680,153 @@ app.get('/', async (c) => {
             document.getElementById('toast').style.display='block';
             setTimeout(function(){document.getElementById('toast').style.display='none';},3000);
             history.replaceState({},'',location.pathname);
+          }
+        })();
+      </script>
+
+      <style>
+        dialog.et-wide { max-width:800px; width:90%; }
+        dialog.et-wide .db { max-height:75vh; }
+        dialog.et-wide .db-inner { display:block; }
+      </style>
+      <dialog id="et-modal" class="et-wide">
+        <div class="dh"><h3 style="margin:0">Clone Task</h3><button class="cb" onclick="document.getElementById('et-modal').close()">&times;</button></div>
+        <div class="db">
+          <input type="hidden" id="et-id">
+          <div id="et-form-view">
+            <div class="field">
+              <label>Task Name<span class="hl">*</span></label>
+              <input type="text" id="et-name" placeholder="e.g. Generate weekly report">
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Agent<span class="hl">*</span></label>
+                <select id="et-ag"><option value="">— Select an agent —</option></select>
+              </div>
+              <div class="field">
+                <label>Model</label>
+                <input type="text" id="et-mo" list="et-model-suggestions" placeholder="default">
+                <datalist id="et-model-suggestions"></datalist>
+              </div>
+            </div>
+            <div class="field">
+              <label>Prompt<span class="hl">*</span></label>
+              <textarea id="et-pr" style="min-height:120px" placeholder="Describe what you want the AI to do..."></textarea>
+            </div>
+            <div class="field">
+              <label>Working Directory</label>
+              <div class="cwd-row">
+                <input type="text" id="et-cw" class="cwd-input" placeholder="e.g. C:\Users\...\my-project" autocomplete="off">
+                <span id="et-cwd-status" class="cwd-status"></span>
+                <button type="button" id="et-btn-browse" class="btn" style="white-space:nowrap" onclick="etOpenBrowse()">Browse</button>
+              </div>
+              <div id="et-cwd-error" class="field-error"></div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Category</label>
+                <select id="et-ca"><option value="general">general</option><option value="translate">translate</option><option value="generate">generate</option><option value="review">review</option><option value="test">test</option></select>
+              </div>
+              <div class="field">
+                <label>Max Retries</label>
+                <select id="et-mr"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option></select>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Importance</label>
+                <div class="field-inline">
+                  <div class="stars" id="et-stars-im"><input type="hidden" name="et-im" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
+                  <span class="mu sm" id="et-stars-im-label">Medium</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>Urgency</label>
+                <div class="field-inline">
+                  <div class="stars" id="et-stars-ur"><input type="hidden" name="et-ur" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
+                  <span class="mu sm" id="et-stars-ur-label">Medium</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="et-browse-view" style="display:none;min-height:300px">
+            <div class="ph" style="padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:4px">
+              <span class="mu sm" id="et-browse-path">Home</span>
+            </div>
+            <div id="et-browse-list" style="min-height:200px"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:10px">
+              <button class="btn" onclick="etBrowseCancel()">Cancel</button>
+              <button class="rf" id="et-browse-select" onclick="etBrowseSelect()" disabled>Select this folder</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" id="et-modal-footer">
+          <button class="btn" onclick="document.getElementById('et-modal').close()">Cancel</button>
+          <button class="rf" onclick="saveCloneTask()">Create Clone</button>
+        </div>
+      </dialog>
+
+      <script>
+        (function(){
+          var etCwdTimeout,etBrowseStack=[],etBrowsePath='';
+          function esc(s){if(!s)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+          function etValidateCwd(path){
+            var s=document.getElementById('et-cwd-status'),e=document.getElementById('et-cwd-error');
+            s.textContent='\u23F3';e.textContent='';
+            if(!path){s.textContent='';e.textContent='';return;}
+            fetch('/api/fs/validate?path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(v){
+              if(v.valid){s.textContent='\u2705';s.style.color='#3fb950';e.textContent='';}
+              else{s.textContent='\u274C';s.style.color='#f85149';e.textContent=v.error;}
+            }).catch(function(){s.textContent='\u274C';s.style.color='#f85149';e.textContent='Validation failed';});
+          }
+          document.getElementById('et-cw').addEventListener('input',function(){
+            clearTimeout(etCwdTimeout);var p=this.value;
+            etCwdTimeout=setTimeout(function(){etValidateCwd(p);},500);
+          });
+          document.getElementById('et-cw').addEventListener('change',function(){etValidateCwd(this.value);});
+          window.etOpenBrowse=function(parentPath){
+            etBrowsePath=parentPath||'';etBrowseStack=etBrowsePath?[etBrowsePath]:[];
+            document.getElementById('et-form-view').style.display='none';
+            document.getElementById('et-browse-view').style.display='block';
+            document.getElementById('et-modal-footer').style.display='none';
+            etBrowseLoad(etBrowsePath);
+          };
+          window.etBrowseCancel=function(){
+            document.getElementById('et-form-view').style.display='block';
+            document.getElementById('et-browse-view').style.display='none';
+            document.getElementById('et-modal-footer').style.display='flex';
+          };
+          window.etBrowseSelect=function(){
+            if(!etBrowseStack.length)return;
+            document.getElementById('et-cw').value=etBrowseStack[etBrowseStack.length-1];
+            etBrowseCancel();
+            etValidateCwd(etBrowseStack[etBrowseStack.length-1]);
+          };
+          function etBrowseLoad(dirPath){
+            var list=document.getElementById('et-browse-list');
+            list.innerHTML='<div class="ta-center mu p30">Loading...</div>';
+            document.getElementById('et-browse-select').disabled=true;
+            var url='/api/fs/browse';if(dirPath)url+='?path='+encodeURIComponent(dirPath);
+            fetch(url).then(function(r){return r.json()}).then(function(data){
+              document.getElementById('et-browse-path').textContent=dirPath||'Home';
+              if(!data.entries||data.entries.length===0){list.innerHTML='<div class="ta-center mu p30">(empty directory)</div>';return;}
+              var html='';
+              if(dirPath)html+='<div class="dir-item dir-up" data-dir="'+(etBrowseStack.length>1?etBrowseStack[etBrowseStack.length-2]:'')+'">\u2190 ..</div>';
+              data.entries.forEach(function(e){html+='<div class="dir-item" data-dir="'+esc(e.path)+'">\uD83D\uDCC1 '+esc(e.name)+'</div>';});
+              list.innerHTML=html;
+              Array.from(list.querySelectorAll('.dir-item')).forEach(function(el){
+                el.addEventListener('click',function(){
+                  var p=el.getAttribute('data-dir');
+                  if(el.classList.contains('dir-up')){etBrowseStack.pop();etBrowseLoad(p);}
+                  else{etBrowseStack.push(p);etBrowseLoad(p);}
+                });
+                el.addEventListener('dblclick',function(e){
+                  e.stopPropagation();
+                  if(!el.classList.contains('dir-up')){document.getElementById('et-cw').value=el.getAttribute('data-dir');etBrowseCancel();etValidateCwd(el.getAttribute('data-dir'));}
+                });
+              });
+              if(dirPath)document.getElementById('et-browse-select').disabled=false;
+            }).catch(function(){list.innerHTML='<div class="ta-center mu" style="color:var(--red)">Failed to load directory</div>';});
           }
         })();
       </script>`;
@@ -572,6 +876,7 @@ app.get('/templates', async (c) => {
           <td class="sm">${t.nextRunAt ? timeUntil(t.nextRunAt) : '-'}</td>
           <td>
             <button class="btn btn-sm" onclick="showTemplateDetail(${t.id})">Details</button>
+            <button class="btn btn-sm" onclick="editTemplate(${t.id})">Edit</button>
             <button class="btn btn-sm btn-primary" onclick="triggerTmpl(${t.id})">Trigger</button>
             ${toggleBtn}
             <button class="btn btn-sm btn-danger" onclick="deleteTmpl(${t.id})">Delete</button>
@@ -604,6 +909,177 @@ app.get('/templates', async (c) => {
             document.getElementById('toast').style.display='block';
             setTimeout(function(){document.getElementById('toast').style.display='none';},3000);
             history.replaceState({},'',location.pathname);
+          }
+        })();
+      </script>
+
+      <dialog id="etm-modal" class="et-wide">
+        <div class="dh"><h3 style="margin:0">Edit Template</h3><button class="cb" onclick="document.getElementById('etm-modal').close()">&times;</button></div>
+        <div class="db">
+          <input type="hidden" id="etm-id">
+          <div id="etm-form-view">
+            <div class="field">
+              <label>Template Name<span class="hl">*</span></label>
+              <input type="text" id="etm-name" placeholder="e.g. Generate weekly report">
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Agent<span class="hl">*</span></label>
+                <select id="etm-ag"><option value="">— Select an agent —</option></select>
+              </div>
+              <div class="field">
+                <label>Model</label>
+                <input type="text" id="etm-mo" list="etm-model-suggestions" placeholder="default">
+                <datalist id="etm-model-suggestions"></datalist>
+              </div>
+            </div>
+            <div class="field">
+              <label>Prompt<span class="hl">*</span></label>
+              <textarea id="etm-pr" style="min-height:120px" placeholder="Describe what you want the AI to do..."></textarea>
+            </div>
+            <div class="field">
+              <label>Working Directory</label>
+              <div class="cwd-row">
+                <input type="text" id="etm-cw" class="cwd-input" placeholder="e.g. C:\Users\...\my-project" autocomplete="off">
+                <span id="etm-cwd-status" class="cwd-status"></span>
+                <button type="button" id="etm-btn-browse" class="btn" style="white-space:nowrap" onclick="etmOpenBrowse()">Browse</button>
+              </div>
+              <div id="etm-cwd-error" class="field-error"></div>
+            </div>
+            <div class="card" style="margin-bottom:20px;padding:14px 16px">
+              <div class="field"><label>Schedule Type</label>
+                <select id="etm-schtype" onchange="editTmplToggleFields()">
+                  <option value="cron">Cron</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="delayed">Delayed</option>
+                </select>
+              </div>
+              <div id="etm-cron-section" class="field">
+                <label>Cron Expression <span class="hl">*</span></label>
+                <input type="text" id="etm-cronexpr" placeholder="e.g. 0 9 * * 1-5" style="font-family:monospace">
+              </div>
+              <div id="etm-recurring-section" class="field" style="display:none">
+                <label>Repeat every</label>
+                <div class="field-inline">
+                  <input type="number" id="etm-intervalval" value="6" min="1" style="width:80px;flex:none">
+                  <select id="etm-intervalunit">
+                    <option value="minutes">minutes</option>
+                    <option value="hours" selected>hours</option>
+                    <option value="days">days</option>
+                  </select>
+                </div>
+              </div>
+              <div id="etm-delayed-section" class="field" style="display:none">
+                <label>Run in (minutes)</label>
+                <input type="number" id="etm-delayval" value="30" min="1" style="width:100px">
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Category</label>
+                <select id="etm-ca"><option value="general">general</option><option value="translate">translate</option><option value="generate">generate</option><option value="review">review</option><option value="test">test</option></select>
+              </div>
+              <div class="field">
+                <label>Max Retries</label>
+                <select id="etm-mr"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option></select>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Importance</label>
+                <div class="field-inline">
+                  <div class="stars" id="etm-stars-im"><input type="hidden" name="etm-im" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
+                  <span class="mu sm" id="etm-stars-im-label">Medium</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>Urgency</label>
+                <div class="field-inline">
+                  <div class="stars" id="etm-stars-ur"><input type="hidden" name="etm-ur" value="3"><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star on">\u2605</span><span class="star">\u2605</span><span class="star">\u2605</span></div>
+                  <span class="mu sm" id="etm-stars-ur-label">Medium</span>
+                </div>
+              </div>
+            </div>
+            <div class="field"><label>Status: <span id="etm-status" class="badge b-done">Enabled</span></label></div>
+          </div>
+          <div id="etm-browse-view" style="display:none;min-height:300px">
+            <div class="ph" style="padding:8px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:4px">
+              <span class="mu sm" id="etm-browse-path">Home</span>
+            </div>
+            <div id="etm-browse-list" style="min-height:200px"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:10px">
+              <button class="btn" onclick="etmBrowseCancel()">Cancel</button>
+              <button class="rf" id="etm-browse-select" onclick="etmBrowseSelect()" disabled>Select this folder</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" id="etm-modal-footer">
+          <button class="btn" onclick="document.getElementById('etm-modal').close()">Cancel</button>
+          <button class="rf" onclick="saveEditTemplate()">Save Changes</button>
+        </div>
+      </dialog>
+
+      <script>
+        (function(){
+          var etmCwdTimeout,etmBrowseStack=[],etmBrowsePath='';
+          function esc(s){if(!s)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+          function etmValidateCwd(path){
+            var s=document.getElementById('etm-cwd-status'),e=document.getElementById('etm-cwd-error');
+            s.textContent='\u23F3';e.textContent='';
+            if(!path){s.textContent='';e.textContent='';return;}
+            fetch('/api/fs/validate?path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(v){
+              if(v.valid){s.textContent='\u2705';s.style.color='#3fb950';e.textContent='';}
+              else{s.textContent='\u274C';s.style.color='#f85149';e.textContent=v.error;}
+            }).catch(function(){s.textContent='\u274C';s.style.color='#f85149';e.textContent='Validation failed';});
+          }
+          document.getElementById('etm-cw').addEventListener('input',function(){
+            clearTimeout(etmCwdTimeout);var p=this.value;
+            etmCwdTimeout=setTimeout(function(){etmValidateCwd(p);},500);
+          });
+          document.getElementById('etm-cw').addEventListener('change',function(){etmValidateCwd(this.value);});
+          window.etmOpenBrowse=function(parentPath){
+            etmBrowsePath=parentPath||'';etmBrowseStack=etmBrowsePath?[etmBrowsePath]:[];
+            document.getElementById('etm-form-view').style.display='none';
+            document.getElementById('etm-browse-view').style.display='block';
+            document.getElementById('etm-modal-footer').style.display='none';
+            etmBrowseLoad(etmBrowsePath);
+          };
+          window.etmBrowseCancel=function(){
+            document.getElementById('etm-form-view').style.display='block';
+            document.getElementById('etm-browse-view').style.display='none';
+            document.getElementById('etm-modal-footer').style.display='flex';
+          };
+          window.etmBrowseSelect=function(){
+            if(!etmBrowseStack.length)return;
+            document.getElementById('etm-cw').value=etmBrowseStack[etmBrowseStack.length-1];
+            etmBrowseCancel();
+            etmValidateCwd(etmBrowseStack[etmBrowseStack.length-1]);
+          };
+          function etmBrowseLoad(dirPath){
+            var list=document.getElementById('etm-browse-list');
+            list.innerHTML='<div class="ta-center mu p30">Loading...</div>';
+            document.getElementById('etm-browse-select').disabled=true;
+            var url='/api/fs/browse';if(dirPath)url+='?path='+encodeURIComponent(dirPath);
+            fetch(url).then(function(r){return r.json()}).then(function(data){
+              document.getElementById('etm-browse-path').textContent=dirPath||'Home';
+              if(!data.entries||data.entries.length===0){list.innerHTML='<div class="ta-center mu p30">(empty directory)</div>';return;}
+              var html='';
+              if(dirPath)html+='<div class="dir-item dir-up" data-dir="'+(etmBrowseStack.length>1?etmBrowseStack[etmBrowseStack.length-2]:'')+'">\u2190 ..</div>';
+              data.entries.forEach(function(e){html+='<div class="dir-item" data-dir="'+esc(e.path)+'">\uD83D\uDCC1 '+esc(e.name)+'</div>';});
+              list.innerHTML=html;
+              Array.from(list.querySelectorAll('.dir-item')).forEach(function(el){
+                el.addEventListener('click',function(){
+                  var p=el.getAttribute('data-dir');
+                  if(el.classList.contains('dir-up')){etmBrowseStack.pop();etmBrowseLoad(p);}
+                  else{etmBrowseStack.push(p);etmBrowseLoad(p);}
+                });
+                el.addEventListener('dblclick',function(e){
+                  e.stopPropagation();
+                  if(!el.classList.contains('dir-up')){document.getElementById('etm-cw').value=el.getAttribute('data-dir');etmBrowseCancel();etmValidateCwd(el.getAttribute('data-dir'));}
+                });
+              });
+              if(dirPath)document.getElementById('etm-browse-select').disabled=false;
+            }).catch(function(){list.innerHTML='<div class="ta-center mu" style="color:var(--red)">Failed to load directory</div>';});
           }
         })();
       </script>`;
@@ -880,6 +1356,84 @@ app.post('/api/templates/:id/trigger', async (c) => {
         templateId: tmpl.id,
     });
     return c.json({ success: true, taskId: task.id });
+});
+
+app.put('/api/tasks/:id', async (c) => {
+    try {
+        const id = Number(c.req.param('id'));
+        const body = await c.req.json();
+        if (body.name !== undefined && !body.name) {
+            return c.json({ success: false, error: 'name cannot be empty' }, 400);
+        }
+        if (body.agent !== undefined && !body.agent) {
+            return c.json({ success: false, error: 'agent cannot be empty' }, 400);
+        }
+        if (body.prompt !== undefined && !body.prompt) {
+            return c.json({ success: false, error: 'prompt cannot be empty' }, 400);
+        }
+        if (body.cwd) {
+            const v = validatePath(String(body.cwd));
+            if (!v.valid) {
+                return c.json({ success: false, error: 'Invalid working directory: ' + v.error }, 400);
+            }
+        }
+        const result = await TaskService.update(id, {
+            name: body.name ? String(body.name) : undefined,
+            agent: body.agent ? String(body.agent) : undefined,
+            model: body.model ? String(body.model) : undefined,
+            prompt: body.prompt ? String(body.prompt) : undefined,
+            cwd: body.cwd ? String(body.cwd) : undefined,
+            category: body.category ? String(body.category) : undefined,
+            importance: body.importance !== undefined ? Number(body.importance) : undefined,
+            urgency: body.urgency !== undefined ? Number(body.urgency) : undefined,
+            maxRetries: body.maxRetries !== undefined ? Number(body.maxRetries) : undefined,
+        });
+        if (!result) return c.json({ success: false, error: 'not found' }, 404);
+        return c.json({ success: true });
+    } catch (err) {
+        return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+});
+
+app.put('/api/templates/:id', async (c) => {
+    try {
+        const id = Number(c.req.param('id'));
+        const body = await c.req.json();
+        if (body.name !== undefined && !body.name) {
+            return c.json({ success: false, error: 'name cannot be empty' }, 400);
+        }
+        if (body.agent !== undefined && !body.agent) {
+            return c.json({ success: false, error: 'agent cannot be empty' }, 400);
+        }
+        if (body.prompt !== undefined && !body.prompt) {
+            return c.json({ success: false, error: 'prompt cannot be empty' }, 400);
+        }
+        if (body.cwd) {
+            const v = validatePath(String(body.cwd));
+            if (!v.valid) {
+                return c.json({ success: false, error: 'Invalid working directory: ' + v.error }, 400);
+            }
+        }
+        const result = await TaskTemplateService.update(id, {
+            name: body.name ? String(body.name) : undefined,
+            agent: body.agent ? String(body.agent) : undefined,
+            model: body.model ? String(body.model) : undefined,
+            prompt: body.prompt ? String(body.prompt) : undefined,
+            cwd: body.cwd ? String(body.cwd) : undefined,
+            category: body.category ? String(body.category) : undefined,
+            importance: body.importance !== undefined ? Number(body.importance) : undefined,
+            urgency: body.urgency !== undefined ? Number(body.urgency) : undefined,
+            maxRetries: body.maxRetries !== undefined ? Number(body.maxRetries) : undefined,
+            scheduleType: body.scheduleType ? String(body.scheduleType) as 'cron' | 'recurring' | 'delayed' : undefined,
+            cronExpr: body.cronExpr ? String(body.cronExpr) : undefined,
+            intervalMs: body.intervalMs !== undefined ? Number(body.intervalMs) : undefined,
+            runAt: body.runAt !== undefined ? Number(body.runAt) : undefined,
+        });
+        if (!result) return c.json({ success: false, error: 'not found' }, 404);
+        return c.json({ success: true });
+    } catch (err) {
+        return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    }
 });
 
 app.put('/api/config', async (c) => {

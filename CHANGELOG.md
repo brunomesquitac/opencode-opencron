@@ -8,6 +8,18 @@ All notable changes to this project will be documented in this file. See [commit
 ### Features
 
 * add notification channels and auto-refresh dashboard ([17f3768](https://github.com/bmesquitadev/opencode-opencron/commit/17f376866aa6dbf0bb0246835dc3150d6be18932))
+* notifications: 5 channels — Telegram, Discord, Slack, Email, Webhook
+* notifications: per-task channel configuration (custom or all channels)
+* notifications: test button per channel with real message delivery
+* notifications: setup guides inline per channel (Token/Chat ID, Webhook URL, SMTP)
+* notifications: automatic notifications on task completion and failure
+* notifications: notification tab on dashboard with channel management UI
+* dashboard: smart auto-refresh via fetch + DOMParser + DOM replacement (no full page flash)
+* dashboard: auto-refresh toggle with configurable interval (5s/10s/30s/60s)
+* dashboard: auto-refresh preference persisted in localStorage
+* dashboard: auto-refresh skips when modal dialog is open (no data loss)
+* dashboard: actions (Retry, Delete, Enable, Disable, Trigger, Clear) use smart refresh instead of full page reload
+* dashboard: smart refresh preserves scroll position across updates
 
 ## [0.1.4](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.3...v0.1.4) (2026-05-25)
 

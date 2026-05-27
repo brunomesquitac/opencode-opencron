@@ -240,6 +240,22 @@ bun install
 bun run build
 ```
 
+## Screenshots
+
+<img width="1629" height="1055" alt="Captura de tela 2026-05-27 010447" src="https://github.com/user-attachments/assets/14dabe70-ff89-4066-a7bf-4f5711b48d50" />
+<img width="1621" height="1065" alt="Captura de tela 2026-05-27 010524" src="https://github.com/user-attachments/assets/8189fb09-2832-43b5-a674-304f28edbb36" />
+<img width="1643" height="1043" alt="Captura de tela 2026-05-27 010512" src="https://github.com/user-attachments/assets/9f1c7d3c-3c12-40d0-93ba-928543c08fce" />
+<img width="1619" height="1024" alt="Captura de tela 2026-05-27 010502" src="https://github.com/user-attachments/assets/bdae869c-3732-4bf9-b2ff-0f2634e020ee" />
+<img width="1612" height="1048" alt="Captura de tela 2026-05-27 010541" src="https://github.com/user-attachments/assets/deb0b5f5-132a-4a87-9759-557def8f7029" />
+
 ## License
 
-MIT — based on [opencode-supertask](https://github.com/vbgate/opencode-supertask) (MIT) by vbgate/javazys.
+MIT
+
+
+
+
+
+
+
+

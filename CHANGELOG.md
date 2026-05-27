@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.11](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.9...v0.1.11) (2026-05-27)
+
+
+### Features
+
+* improve notification formatting across all channels ([8e234a4](https://github.com/bmesquitadev/opencode-opencron/commit/8e234a4db98b6ce757bfdf5a21c416c1e2799a86))
+
+
+### Bug Fixes
+
+* define editTmplToggleFields and pass notifyOn on manual template trigger ([68f5c15](https://github.com/bmesquitadev/opencode-opencron/commit/68f5c15717198f13930333ff2539ffa05c93dbee))
+
 ## [0.1.9](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.8...v0.1.9) (2026-05-27)
 
 ## [0.1.8](https://github.com/bmesquitadev/opencode-opencron/compare/v0.1.7...v0.1.8) (2026-05-27)

@@ -1,4 +1,5 @@
 import type { ChannelHandler, NotificationPayload, SendResult, DiscordConfig } from './channel.interface';
+import { convertForChannel } from '@gateway/notifications/markdown-utils';
 
 const STATUS_COLORS: Record<string, number> = {
     done: 0x238636,
@@ -6,10 +7,10 @@ const STATUS_COLORS: Record<string, number> = {
     dead_letter: 0xd29922,
 };
 
-const STATUS_LABELS: Record<string, string> = {
-    done: 'Completed',
-    failed: 'Failed',
-    dead_letter: 'Dead Letter',
+const STATUS_EMOJI: Record<string, string> = {
+    done: '✅',
+    failed: '❌',
+    dead_letter: '💀',
 };
 
 export const discordChannel: ChannelHandler = {
@@ -17,33 +18,38 @@ export const discordChannel: ChannelHandler = {
 
     async send(payload: NotificationPayload, config: Record<string, unknown>): Promise<SendResult> {
         const cfg = config as unknown as DiscordConfig;
-        const color = STATUS_COLORS[payload.event] || 0x8b949e;
-        const statusLabel = STATUS_LABELS[payload.event] || payload.event;
-        const resultPreview = payload.result.slice(0, 1000) || '[no output]';
+        const color = STATUS_COLORS[payload.event] ?? 0x8b949e;
+        const emoji = STATUS_EMOJI[payload.event] ?? '•';
 
-        const embed: Record<string, unknown> = {
-            title: `OpenCron — Task ${statusLabel}`,
-            color,
-            fields: [
-                { name: 'Task', value: payload.task.name, inline: true },
-                { name: 'Agent', value: payload.task.agent, inline: true },
-                { name: 'Duration', value: payload.duration, inline: true },
-                { name: 'Category', value: payload.task.category, inline: true },
-                { name: 'Importance', value: `${'★'.repeat(payload.task.importance)}${'☆'.repeat(5 - payload.task.importance)}`, inline: true },
-                { name: 'Urgency', value: `${'★'.repeat(payload.task.urgency)}${'☆'.repeat(5 - payload.task.urgency)}`, inline: true },
-                { name: 'Result', value: resultPreview },
-            ],
-            timestamp: new Date().toISOString(),
-            footer: { text: `Task #${payload.task.id}` },
-        };
+        const title = `[Task #${payload.task.id} ${emoji}] ${payload.task.name}`;
+
+        // Build description: optional error block + result
+        const parts: string[] = [];
 
         if (payload.error) {
-            (embed.fields as Array<Record<string, unknown>>).splice(3, 0, {
-                name: 'Error',
-                value: payload.error.slice(0, 1000),
-                inline: false,
-            });
+            parts.push(`⚠️ **Erro:**\n\`\`\`\n${payload.error.slice(0, 800)}\n\`\`\``);
         }
+
+        const convertedResult = convertForChannel(payload.result, 'discord');
+        if (convertedResult) {
+            parts.push(convertedResult.slice(0, 3200));
+        }
+
+        const description = parts.join('\n\n') || '[sem output]';
+
+        // Footer: Agent | Duration | Dir | Dashboard
+        const footerParts = [`Agent: ${payload.task.agent}`];
+        if (payload.duration) footerParts.push(`Duration: ${payload.duration}`);
+        if (payload.cwd) footerParts.push(`Dir: ${payload.cwd}`);
+        if (payload.dashboardUrl) footerParts.push(`Dashboard: ${payload.dashboardUrl}`);
+
+        const embed: Record<string, unknown> = {
+            title,
+            description,
+            color,
+            footer: { text: footerParts.join('  |  ') },
+            timestamp: new Date().toISOString(),
+        };
 
         if (payload.dashboardUrl) {
             embed.url = payload.dashboardUrl;

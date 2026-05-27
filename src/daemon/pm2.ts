@@ -30,8 +30,9 @@ function spawnWinCmd(binPath: string, args: string[], options: import("child_pro
     const opts = { ...options, encoding: "utf-8" as const, windowsHide: true };
     let result: import("child_process").SpawnSyncReturns<string>;
     if (isCmdScript(binPath)) {
+        const quotedBinPath = binPath.includes(' ') ? `"${binPath}"` : binPath;
         const quoted = args.map(a => a.includes(' ') ? `"${a}"` : a);
-        result = spawnSync('cmd.exe', ['/d', '/c', binPath, ...quoted], { ...opts, shell: false });
+        result = spawnSync('cmd.exe', ['/d', '/c', quotedBinPath, ...quoted], { ...opts, shell: false });
     } else {
         result = spawnSync(binPath, args, opts);
     }

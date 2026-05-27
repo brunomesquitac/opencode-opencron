@@ -458,6 +458,13 @@ async function editTemplate(id){
   }catch(e){alert(_tf('alert.failedLoadTemplate',e.message));}
 }
 
+function editTmplToggleFields(){
+  var v=document.getElementById('etm-schtype').value;
+  document.getElementById('etm-cron-section').style.display=v==='cron'?'':'none';
+  document.getElementById('etm-recurring-section').style.display=v==='recurring'?'':'none';
+  document.getElementById('etm-delayed-section').style.display=v==='delayed'?'':'none';
+}
+
 async function saveEditTemplate(){
   const id=document.getElementById('etm-id').value;
   var cwdRaw=document.getElementById('etm-cw').value.trim();
@@ -1894,6 +1901,7 @@ app.post('/api/templates/:id/trigger', async (c) => {
         urgency: tmpl.urgency,
         maxRetries: tmpl.maxRetries,
         templateId: tmpl.id,
+        notifyOn: tmpl.notifyOn ?? undefined,
     });
     return c.json({ success: true, taskId: task.id });
 });

@@ -1,9 +1,10 @@
 import type { ChannelHandler, NotificationPayload, SendResult, SlackConfig } from './channel.interface';
+import { convertForChannel } from '@gateway/notifications/markdown-utils';
 
 const STATUS_EMOJI: Record<string, string> = {
-    done: ':white_check_mark:',
-    failed: ':x:',
-    dead_letter: ':skull:',
+    done: '✅',
+    failed: '❌',
+    dead_letter: '💀',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -12,62 +13,67 @@ const STATUS_COLORS: Record<string, string> = {
     dead_letter: '#d29922',
 };
 
-const STATUS_LABELS: Record<string, string> = {
-    done: 'Completed',
-    failed: 'Failed',
-    dead_letter: 'Dead Letter',
-};
-
 export const slackChannel: ChannelHandler = {
     name: 'slack',
 
     async send(payload: NotificationPayload, config: Record<string, unknown>): Promise<SendResult> {
         const cfg = config as unknown as SlackConfig;
-        const emoji = STATUS_EMOJI[payload.event] || ':information_source:';
-        const statusLabel = STATUS_LABELS[payload.event] || payload.event;
-        const color = STATUS_COLORS[payload.event] || '#8b949e';
-        const resultPreview = payload.result.slice(0, 2800) || '[no output]';
+        const emoji = STATUS_EMOJI[payload.event] ?? '•';
+        const color = STATUS_COLORS[payload.event] ?? '#8b949e';
 
-        const blocks: Array<Record<string, unknown>> = [
-            {
-                type: 'header',
-                text: { type: 'plain_text', text: `${emoji} OpenCron — Task ${statusLabel}`, emoji: true },
-            },
-            { type: 'divider' },
-            {
-                type: 'section',
-                fields: [
-                    { type: 'mrkdwn', text: `*Task:*\n${payload.task.name}` },
-                    { type: 'mrkdwn', text: `*Agent:*\n${payload.task.agent}` },
-                    { type: 'mrkdwn', text: `*Duration:*\n${payload.duration}` },
-                    { type: 'mrkdwn', text: `*Category:*\n${payload.task.category}` },
-                ],
-            },
-        ];
+        const title = `*[Task #${payload.task.id} ${emoji}] ${payload.task.name}*`;
 
+        const blocks: Array<Record<string, unknown>> = [];
+
+        // Title
+        blocks.push({
+            type: 'section',
+            text: { type: 'mrkdwn', text: title },
+        });
+
+        blocks.push({ type: 'divider' });
+
+        // Error block (if failed)
         if (payload.error) {
             blocks.push({
                 type: 'section',
-                text: { type: 'mrkdwn', text: `*Error:*\n\`\`\`${payload.error.slice(0, 2000)}\`\`\`` },
+                text: {
+                    type: 'mrkdwn',
+                    text: `⚠️ *Erro:*\n\`\`\`${payload.error.slice(0, 800)}\`\`\``,
+                },
             });
+        }
+
+        // Result (converted mrkdwn, tables as ASCII art)
+        const convertedResult = convertForChannel(payload.result, 'slack');
+        if (convertedResult) {
+            // Slack mrkdwn section text limit is 3000 chars
+            blocks.push({
+                type: 'section',
+                text: { type: 'mrkdwn', text: convertedResult.slice(0, 3000) },
+            });
+        }
+
+        blocks.push({ type: 'divider' });
+
+        // Footer: Agent, Duration, Dir, Dashboard
+        const footerLines: string[] = [`• Agent: ${payload.task.agent}`];
+        if (payload.duration) footerLines.push(`• Duration: ${payload.duration}`);
+        if (payload.cwd) footerLines.push(`• Dir: ${payload.cwd}`);
+        if (payload.dashboardUrl) {
+            footerLines.push(`• Dashboard: <${payload.dashboardUrl}|Abrir Dashboard>`);
         }
 
         blocks.push({
             type: 'section',
-            text: { type: 'mrkdwn', text: `*Result:*\n\`\`\`${resultPreview}\`\`\`` },
+            text: { type: 'mrkdwn', text: footerLines.join('\n') },
         });
 
-        if (payload.dashboardUrl) {
-            blocks.push({
-                type: 'section',
-                text: { type: 'mrkdwn', text: `<${payload.dashboardUrl}|Open Dashboard>` },
-            });
-        }
-
+        // Color bar attachment
         const attachments = [
             {
                 color,
-                footer: `Task #${payload.task.id} | Importance: ${'★'.repeat(payload.task.importance)} | Urgency: ${'★'.repeat(payload.task.urgency)}`,
+                footer: `Task #${payload.task.id}`,
                 ts: Math.floor(Date.now() / 1000),
             },
         ];

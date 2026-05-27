@@ -10,9 +10,10 @@ export interface NotificationPayload {
         urgency: number;
     };
     result: string;
-    duration: string;
+    duration?: string;
     error?: string;
     dashboardUrl?: string;
+    cwd?: string;
 }
 
 export interface SendResult {

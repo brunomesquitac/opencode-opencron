@@ -322,18 +322,18 @@ export class WorkerEngine {
 
             if (modelError) {
                 await TaskRunService.fail(runId, modelError, messagesJson ?? undefined);
-                await TaskService.fail(task.id, modelError);
-                task.resultLog = modelError;
-                notifyTask(task, 'failed', this.cfg.notifications, this.cfg.dashboard.port).catch((err) => {
+                const failedTask = await TaskService.fail(task.id, modelError) ?? task;
+                failedTask.resultLog = modelError;
+                notifyTask(failedTask, 'failed', this.cfg.notifications, this.cfg.dashboard.port).catch((err) => {
                     console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'notification failed', taskId: task.id, error: err instanceof Error ? err.message : String(err) }));
                 });
                 console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'task model error', taskId: task.id, error: modelError }));
             } else {
                 const resultLog = output.trim().slice(-8000) || '[no text output captured]';
                 await TaskRunService.done(runId, resultLog, messagesJson ?? undefined);
-                await TaskService.done(task.id, resultLog);
-                task.resultLog = resultLog;
-                notifyTask(task, 'done', this.cfg.notifications, this.cfg.dashboard.port).catch((err) => {
+                const doneTask = await TaskService.done(task.id, resultLog) ?? task;
+                doneTask.resultLog = resultLog;
+                notifyTask(doneTask, 'done', this.cfg.notifications, this.cfg.dashboard.port).catch((err) => {
                     console.error(JSON.stringify({ ts: new Date().toISOString(), level: 'error', msg: 'notification failed', taskId: task.id, error: err instanceof Error ? err.message : String(err) }));
                 });
                 console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'task done', taskId: task.id }));

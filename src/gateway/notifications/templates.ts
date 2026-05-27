@@ -1,10 +1,14 @@
+import { basename } from 'path';
 import type { NotificationPayload } from '@gateway/channels/channel.interface';
 import type { Task } from '@core/db/schema';
 
 export function buildPayload(task: Task, event: NotificationPayload['event'], dashboardPort?: number): NotificationPayload {
     const duration = task.startedAt && task.finishedAt
         ? formatDurationMs(task.finishedAt.getTime() - task.startedAt.getTime())
-        : '-';
+        : undefined;
+
+    // Show only the last folder name to avoid huge paths in notifications
+    const cwd = task.cwd ? basename(task.cwd) || task.cwd : undefined;
 
     return {
         event,
@@ -17,10 +21,11 @@ export function buildPayload(task: Task, event: NotificationPayload['event'], da
             importance: task.importance ?? 3,
             urgency: task.urgency ?? 3,
         },
-        result: task.resultLog?.slice(0, 3000) ?? '',
+        result: task.resultLog?.slice(0, 4000) ?? '',
         duration,
         error: event !== 'done' ? (task.resultLog?.slice(0, 1000) ?? 'Unknown error') : undefined,
         dashboardUrl: dashboardPort ? `http://localhost:${dashboardPort}` : undefined,
+        cwd,
     };
 }
 

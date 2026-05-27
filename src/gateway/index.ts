@@ -1,4 +1,3 @@
-import { sqlite } from '@core/db';
 import { loadConfig } from './config';
 import { WorkerEngine } from '@worker/index';
 import { Watchdog } from './watchdog';
@@ -6,99 +5,81 @@ import { Scheduler } from './scheduler';
 import { closeDb } from '@core/db';
 import { TaskService } from '@core/services/task.service';
 import { TaskRunService } from '@core/services/task-run.service';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
-// gateway_lock.heartbeat_at / acquired_at in milliseconds (Date.now())
-// if no heartbeat beyond this threshold, the lock holder is considered dead
-const STALE_THRESHOLD_MS = 30_000;
+const DATA_DIR = join(homedir(), '.local', 'share', 'opencode');
+const LOCK_FILE = join(DATA_DIR, 'gateway.lock');
 
-function acquireLock(): boolean {
-    const now = Date.now();
-    const pid = process.pid;
-
+function readLock(): { pid: number; port: number; startedAt: number } | null {
     try {
-        sqlite.exec('BEGIN IMMEDIATE');
+        if (!existsSync(LOCK_FILE)) return null;
+        return JSON.parse(readFileSync(LOCK_FILE, 'utf-8'));
+    } catch {
+        return null;
+    }
+}
 
-        const existing = sqlite.prepare('SELECT id, pid, heartbeat_at FROM gateway_lock WHERE id = 1').get() as {
-            id: number;
-            pid: number;
-            heartbeat_at: number;
-        } | undefined;
+function writeLock(pid: number, port: number) {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(LOCK_FILE, JSON.stringify({ pid, port, startedAt: Date.now() }));
+}
 
-        if (existing) {
-            if (existing.pid === pid) {
-                sqlite.exec('COMMIT');
-                return true;
-            }
+function removeLock() {
+    try { unlinkSync(LOCK_FILE); } catch {}
+}
 
-            // Check if the existing process is actually alive before trusting the heartbeat.
-            // On Windows, PM2 may kill the process without delivering SIGTERM, leaving
-            // a stale lock entry even though the process no longer exists.
-            let existingAlive = false;
-            try {
-                process.kill(existing.pid, 0);
-                existingAlive = true;
-            } catch {
-                existingAlive = false;
-            }
-
-            if (existingAlive && now - existing.heartbeat_at < STALE_THRESHOLD_MS) {
-                sqlite.exec('ROLLBACK');
-                console.error(JSON.stringify({
-                    ts: new Date().toISOString(),
-                    level: 'fatal',
-                    msg: 'another Gateway instance is already running',
-                    existingPid: existing.pid,
-                }));
-                return false;
-            }
-
-            sqlite.exec('DELETE FROM gateway_lock WHERE id = 1');
-        }
-
-        sqlite.exec(
-            'INSERT INTO gateway_lock (id, pid, acquired_at, heartbeat_at) VALUES (1, ?, ?, ?)',
-            [pid, now, now],
-        );
-        sqlite.exec('COMMIT');
+function isPidAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
         return true;
-    } catch (err) {
-        try { sqlite.exec('ROLLBACK'); } catch {}
-        console.error(JSON.stringify({
-            ts: new Date().toISOString(),
-            level: 'fatal',
-            msg: 'failed to acquire lock',
-            error: err instanceof Error ? err.message : String(err),
-        }));
+    } catch {
         return false;
     }
 }
 
-function releaseLock() {
-    try {
-        sqlite.exec('DELETE FROM gateway_lock WHERE pid = ?', [process.pid]);
-    } catch {}
-}
+function acquireLock(port: number): boolean {
+    const existing = readLock();
+    const pid = process.pid;
 
-function updateLockHeartbeat() {
-    try {
-        sqlite.exec(
-            'UPDATE gateway_lock SET heartbeat_at = ? WHERE pid = ?',
-            [Date.now(), process.pid],
-        );
-    } catch {}
+    if (existing) {
+        if (existing.pid === pid) return true;
+
+        if (isPidAlive(existing.pid)) {
+            console.error(JSON.stringify({
+                ts: new Date().toISOString(),
+                level: 'fatal',
+                msg: 'another Gateway instance is already running',
+                existingPid: existing.pid,
+                existingPort: existing.port,
+            }));
+            return false;
+        }
+
+        console.log(JSON.stringify({
+            ts: new Date().toISOString(),
+            level: 'info',
+            msg: 'removing stale lock from dead process',
+            stalePid: existing.pid,
+        }));
+        removeLock();
+    }
+
+    writeLock(pid, port);
+    return true;
 }
 
 async function main() {
     console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'OpenCron Gateway starting', pid: process.pid }));
 
-    if (!acquireLock()) {
+    const cfg = loadConfig();
+
+    if (!acquireLock(cfg.dashboard.port)) {
         process.exit(1);
     }
+    process.on('exit', removeLock);
 
-    const heartbeatTimer = setInterval(updateLockHeartbeat, 10_000);
-    heartbeatTimer.unref();
-
-    const cfg = loadConfig();
     const worker = new WorkerEngine(cfg);
     const watchdog = new Watchdog(cfg);
     const scheduler = new Scheduler(cfg);
@@ -109,8 +90,7 @@ async function main() {
 
     if (cfg.dashboard.enabled) {
         const { dashboardApp } = await import('@web/index');
-        const basePort = cfg.dashboard.port;
-        let port = basePort;
+        let port = cfg.dashboard.port;
         let server: any;
         for (let attempt = 0; attempt < 100; attempt++) {
             try {
@@ -118,10 +98,11 @@ async function main() {
                     hostname: '127.0.0.1',
                     port,
                     fetch: dashboardApp.fetch,
-                });
+                    reuseAddr: true,
+                } as any);
                 break;
             } catch (err: any) {
-                if (err?.code === 'EADDRINUSE' && port < basePort + 100) {
+                if (err?.code === 'EADDRINUSE' && port < cfg.dashboard.port + 100) {
                     port++;
                     continue;
                 }
@@ -129,11 +110,9 @@ async function main() {
             }
         }
         if (!server) {
-            throw new Error(`Dashboard: no available port found in range ${basePort}-${basePort + 99}`);
+            throw new Error(`Dashboard: no available port found in range ${cfg.dashboard.port}-${cfg.dashboard.port + 99}`);
         }
-        if (port !== basePort) {
-            cfg.dashboard.port = port;
-        }
+        writeLock(process.pid, port);
         console.log(JSON.stringify({
             ts: new Date().toISOString(),
             level: 'info',
@@ -157,7 +136,6 @@ async function main() {
 
         console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: `received ${signal}, shutting down...` }));
 
-        clearInterval(heartbeatTimer);
         scheduler.stop();
         watchdog.stop();
 
@@ -174,7 +152,7 @@ async function main() {
             await TaskRunService.fail(run.id, 'Gateway shutdown');
         }
 
-        releaseLock();
+        removeLock();
         closeDb();
 
         console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: 'Gateway stopped' }));
@@ -196,6 +174,7 @@ async function main() {
 }
 
 export { main };
+export { LOCK_FILE, readLock, isPidAlive };
 
 if (import.meta.main) {
     main();

@@ -360,13 +360,184 @@ program
         console.log(JSON.stringify({ migrated: true }));
     }));
 
-program
-    .command('gateway')
-    .description('Start the Gateway process (foreground)')
+async function cleanStaleLock() {
+    const { readFileSync, unlinkSync, existsSync } = await import('fs');
+    const { homedir } = await import('os');
+    const { join } = await import('path');
+    const lockFile = join(homedir(), '.local', 'share', 'opencode', 'gateway.lock');
+    if (existsSync(lockFile)) {
+        try {
+            const lock = JSON.parse(readFileSync(lockFile, 'utf-8'));
+            try { process.kill(lock.pid, 0); } catch {
+                unlinkSync(lockFile);
+                console.log(JSON.stringify({ level: 'info', msg: 'removed stale lock from dead process', stalePid: lock.pid }));
+            }
+        } catch { unlinkSync(lockFile); }
+    }
+}
+
+const gatewayCmd = new Command('gateway')
+    .description('Manage the Gateway process (start, stop, restart, status, logs)');
+
+gatewayCmd
+    .command('start')
+    .description('Start the Gateway process in foreground')
     .action(async () => {
+        await cleanStaleLock();
         const { main } = await import('@gateway/index');
         await main();
     });
+
+async function stopGateway(options: { force?: boolean } = {}): Promise<void> {
+    const { spawnSync } = await import('child_process');
+    const { readFileSync, unlinkSync, existsSync } = await import('fs');
+    const { homedir } = await import('os');
+    const { join } = await import('path');
+    const lockFile = join(homedir(), '.local', 'share', 'opencode', 'gateway.lock');
+    const pm2Path = (() => { try { return Bun.which('pm2') || Bun.which('pm2.cmd') || 'pm2'; } catch { return 'pm2'; } })();
+
+    // 1. Delete from PM2 first — prevents auto-restart race
+    let pm2Done = false;
+    try {
+        const del = spawnSync(pm2Path, ['delete', 'opencron-gateway'], { timeout: 10000, windowsHide: true });
+        if (del.status === 0) pm2Done = true;
+    } catch {}
+    if (!pm2Done) {
+        try { spawnSync(pm2Path, ['stop', 'opencron-gateway'], { timeout: 10000, windowsHide: true }); } catch {}
+    }
+
+    // 2. Kill via lock file PID
+    if (existsSync(lockFile)) {
+        try {
+            const lock = JSON.parse(readFileSync(lockFile, 'utf-8'));
+            try { process.kill(lock.pid, options.force ? 'SIGKILL' : 'SIGTERM'); } catch (err) { if ((err as any)?.code !== 'ESRCH') throw err; }
+            unlinkSync(lockFile);
+        } catch {}
+    }
+
+    console.log(JSON.stringify({ stopped: true }));
+}
+
+gatewayCmd
+    .command('stop')
+    .description('Stop the running Gateway gracefully')
+    .option('-f, --force', 'Force kill if graceful shutdown fails')
+    .action(async (options) => {
+        await stopGateway({ force: options.force });
+    });
+
+gatewayCmd
+    .command('restart')
+    .description('Stop and restart the Gateway in foreground')
+    .action(async () => {
+        await stopGateway({ force: true });
+        const { main } = await import('@gateway/index');
+        await main();
+    });
+
+gatewayCmd
+    .command('status')
+    .description('Check if the Gateway is running')
+    .action(async () => {
+        const { readFileSync, existsSync } = await import('fs');
+        const { homedir } = await import('os');
+        const { join } = await import('path');
+        const lockFile = join(homedir(), '.local', 'share', 'opencode', 'gateway.lock');
+
+        const result: Record<string, unknown> = { running: false };
+
+        // Check lock file
+        if (existsSync(lockFile)) {
+            try {
+                const lock = JSON.parse(readFileSync(lockFile, 'utf-8'));
+                try {
+                    process.kill(lock.pid, 0);
+                    result.running = true;
+                    result.method = 'lock_file';
+                    result.pid = lock.pid;
+                    result.port = lock.port;
+                    result.startedAt = new Date(lock.startedAt).toISOString();
+                } catch {
+                    result.staleLock = true;
+                    result.stalePid = lock.pid;
+                }
+            } catch {}
+        }
+
+        // Check PM2
+        if (!result.running) {
+            try {
+                const { spawnSync } = await import('child_process');
+                const pm2Path = (() => { try { return Bun.which('pm2') || Bun.which('pm2.cmd') || 'pm2'; } catch { return 'pm2'; } })();
+                const res = spawnSync(pm2Path, ['jlist'], { timeout: 10000, windowsHide: true });
+                if (res.status === 0 && res.stdout) {
+                    const list = JSON.parse(res.stdout.toString());
+                    const gw = list.find((p: any) => p.name === 'opencron-gateway' && p.pm2_env?.status === 'online');
+                    if (gw) {
+                        result.running = true;
+                        result.method = 'pm2';
+                        result.pid = gw.pid;
+                        result.pmId = gw.pm_id;
+                        result.restarts = gw.pm2_env?.restart_time;
+                        result.uptime = gw.pm2_env?.pm_uptime;
+                    }
+                }
+            } catch {}
+        }
+
+        console.log(JSON.stringify(result, null, 2));
+    });
+
+gatewayCmd
+    .command('logs')
+    .description('Show Gateway logs')
+    .option('-f, --follow', 'Follow log output (tail -f)')
+    .option('-n, --lines <number>', 'Number of lines to show', '50')
+    .action(async (options) => {
+        const { join } = await import('path');
+        const { homedir } = await import('os');
+        const { existsSync } = await import('fs');
+        const logFile = join(homedir(), '.local', 'share', 'opencode', 'gateway.log');
+
+        if (!existsSync(logFile)) {
+            console.log('No gateway.log found at ' + logFile);
+            return;
+        }
+
+        if (options.follow) {
+            const { spawn } = await import('child_process');
+            const tail = spawn('powershell', [
+                '-NoLogo', '-NoProfile', '-NonInteractive',
+                '-Command',
+                `Get-Content -Path "${logFile}" -Tail ${parseInt(options.lines)} -Wait`
+            ], { stdio: 'inherit', windowsHide: true });
+            await new Promise(() => {});
+        } else {
+            const { readFileSync } = await import('fs');
+            const lines = readFileSync(logFile, 'utf-8').trim().split('\n');
+            const tail = lines.slice(-parseInt(options.lines));
+            for (const line of tail) {
+                try {
+                    const parsed = JSON.parse(line);
+                    if (parsed.ts && parsed.level && parsed.msg) {
+                        const ts = new Date(parsed.ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+                        const icon = parsed.level === 'error' || parsed.level === 'fatal' ? '✖' : parsed.level === 'warn' ? '⚠' : '✓';
+                        console.log(`${ts} [${icon}] ${parsed.msg}${parsed.taskId ? ' (task ' + parsed.taskId + ')' : ''}${parsed.channel ? ' [' + parsed.channel + ']' : ''}`);
+                    } else {
+                        console.log(line);
+                    }
+                } catch {
+                    console.log(line);
+                }
+            }
+            console.log(`\n--- ${tail.length} lines from ${logFile} ---`);
+            if (tail.length === lines.length) {
+                console.log('(use -f to follow, -n <N> for more lines)');
+            }
+        }
+    });
+
+program.addCommand(gatewayCmd);
 
 program
     .command('ui')
@@ -396,6 +567,7 @@ program
     .command('restart')
     .description('Restart the Gateway process via PM2')
     .action(async () => {
+        await cleanStaleLock();
         try {
             const { restart: pm2Restart } = await import('../daemon/pm2');
             pm2Restart();
@@ -409,6 +581,7 @@ program
     .command('install')
     .description('Install Gateway as pm2 service (auto-start on boot, crash recovery)')
     .action(async () => {
+        await cleanStaleLock();
         try {
             const { install: pm2Install } = await import('../daemon/pm2');
             pm2Install();

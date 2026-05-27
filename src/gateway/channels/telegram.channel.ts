@@ -1,30 +1,49 @@
 import type { ChannelHandler, NotificationPayload, SendResult, TelegramConfig } from './channel.interface';
+import { convertForChannel } from '@gateway/notifications/markdown-utils';
 
-function escapeMdV2(text: string): string {
-    return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
-}
+const STATUS_EMOJI: Record<string, string> = {
+    done: '✅',
+    failed: '❌',
+    dead_letter: '💀',
+};
 
 function formatTelegramPayload(payload: NotificationPayload): string {
-    const statusEmoji = payload.event === 'done' ? '✅' : payload.event === 'failed' ? '❌' : '💀';
-    const statusLabel = payload.event === 'done' ? 'Completed' : payload.event === 'failed' ? 'Failed' : 'Dead Letter';
-    const lines: string[] = [
-        `${statusEmoji} *OpenCron — Task ${statusLabel}*`,
-        escapeMdV2('━━━━━━━━━━━━━━━━━'),
-        `*Task:* ${escapeMdV2(payload.task.name)}`,
-        `*Agent:* ${escapeMdV2(payload.task.agent)}  \\|  *Duration:* ${escapeMdV2(payload.duration)}`,
-    ];
+    const emoji = STATUS_EMOJI[payload.event] ?? '•';
+
+    // Escape special chars for MarkdownV2 in plain strings
+    const esc = (text: string) => text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+
+    const lines: string[] = [];
+
+    // Title
+    lines.push(`*\\[Task \\#${payload.task.id} ${emoji}\\] ${esc(payload.task.name)}*`);
+    lines.push('');
+
+    // Error block (if failed)
     if (payload.error) {
-        lines.push(`*Error:* ${escapeMdV2(payload.error)}`);
+        lines.push('⚠️ *Erro:*');
+        lines.push(`\`\`\`\n${payload.error.slice(0, 800)}\n\`\`\``);
+        lines.push('');
     }
-    const resultPreview = payload.result.slice(0, 1500);
-    if (resultPreview) {
-        lines.push(`━━━━━━━━━━━━━━━━━`);
-        lines.push(escapeMdV2(resultPreview));
+
+    // Result — converted to MarkdownV2 (tables → ASCII art, bold/headings converted)
+    const convertedResult = convertForChannel(payload.result, 'telegram');
+    if (convertedResult) {
+        // Telegram total message limit is 4096 chars; leave ~200 for header+footer
+        lines.push(convertedResult.slice(0, 3700));
+        lines.push('');
     }
+
+    // Footer
+    lines.push(`• Agent: ${esc(payload.task.agent)}`);
+    if (payload.duration) lines.push(`• Duration: ${esc(payload.duration)}`);
+    if (payload.cwd) lines.push(`• Dir: ${esc(payload.cwd)}`);
     if (payload.dashboardUrl) {
-        lines.push(`━━━━━━━━━━━━━━━━━`);
-        lines.push(`[Open Dashboard](${payload.dashboardUrl})`);
+        // URL only needs ) and \ escaped inside the parentheses
+        const safeUrl = payload.dashboardUrl.replace(/[)\\]/g, '\\$&');
+        lines.push(`• [Abrir Dashboard](${safeUrl})`);
     }
+
     return lines.join('\n');
 }
 
